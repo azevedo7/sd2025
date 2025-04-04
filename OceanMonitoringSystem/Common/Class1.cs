@@ -34,6 +34,14 @@
 
             return (parts[0], parts[1]);
         }
+        // Helper method to check if the message follows the protocol
+        public static bool IsValidMessage(string message)
+        {
+            string[] parts = message.Split('|');
+            return parts.Length >= 3 && parts[2] == END;
+        }
+
+
 
     }
 }
