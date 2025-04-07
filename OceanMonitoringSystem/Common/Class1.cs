@@ -15,12 +15,13 @@
         public const string STATUS_ACK = "STATUS_ACK";
         public const string DISC_REQ = "DISC_REQ";
         public const string DISC_ACK = "DISC_ACK";
+        public const string MAINTENANCE_STATE = "MAINTENANCE_STATE";
 
         // Message delimiter
         public const string END = "END";
 
         // Helper method to create protocol messages
-        public static string CreateMessage(string messageType, string payload)
+        public static string CreateMessage(string messageType, string payload = "")
         {
             return $"{messageType}|{payload}|{END}";
         }
@@ -43,5 +44,13 @@
 
 
 
+    }
+
+    public static class WavyStatus
+    {
+        public const string ACTIVE = "associada";
+        public const string INACTIVE = "desativada";
+        public const string MAINTENANCE = "manutenção";
+        public const string OPERATION = "operação";
     }
 }
