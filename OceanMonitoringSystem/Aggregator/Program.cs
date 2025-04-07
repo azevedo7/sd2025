@@ -162,7 +162,12 @@ class Aggregator
                             SendMessageToWavy(stream, Protocol.DISC_ACK, "Disconnection acknowledged").Wait();
                             Console.WriteLine("Sent disconnection acknowledgment to wavy.");
                             break; // Exit the loop on disconnection request
-
+                        case Protocol.MAINTENANCE_STATE:
+                            // Update the status in the CSV to maintenance
+                            CsvHelper.UpdateWavyStatus(payload, WavyStatus.MAINTENANCE);
+                            SendMessageToWavy(stream, Protocol.STATUS_ACK, "Maintenance state acknowledged").Wait();
+                            Console.WriteLine("Sent maintenance state acknowledgment to wavy.");
+                            break;
                         default:
                             Console.WriteLine("Unknown message type received.");
                             break;
