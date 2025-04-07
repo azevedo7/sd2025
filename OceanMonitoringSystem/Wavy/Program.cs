@@ -2,6 +2,8 @@
 using System.Net.Sockets;
 using System.Text;
 using OceanMonitoringSystem.Common;
+using System.Text.Json;
+
 
 class Wavy
 {
@@ -46,16 +48,26 @@ class Wavy
                 switch (choice)
                 {
                     case "1":
-                        Console.Write("Digite os dados para enviar (envie nada para voltar): ");
-                        string dataInput = Console.ReadLine();
+                        //Console.Write("Digite os dados para enviar (envie nada para voltar): ");
+                        //string dataInput = Console.ReadLine();
 
-                        if(dataInput == null || dataInput.Length == 0)
+                        //if(dataInput == null || dataInput.Length == 0)
+                        //{
+                        //    break;
+                        //}
+
+                        //string dataSend = Protocol.CreateMessage(Protocol.DATA_SEND, dataInput);
+                        //await SendAsync(stream, dataSend);
+
+                        var dataMessage = new
                         {
-                            break;
-                        }
+                            dataType = "temperature",
+                            value = GenerateRandomTemperature().ToString(),
+                        };
 
-                        string dataSend = Protocol.CreateMessage(Protocol.DATA_SEND, dataInput);
+                        string dataSend = Protocol.CreateMessage(Protocol.DATA_SEND, JsonSerializer.Serialize(dataMessage));
                         await SendAsync(stream, dataSend);
+
                         string dataReply = await ReadAsync(stream);
                         Console.WriteLine("Aggregator: " + dataReply);
                         break;
@@ -96,5 +108,11 @@ class Wavy
         byte[] buffer = new byte[1024];
         int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
         return Encoding.ASCII.GetString(buffer, 0, bytesRead);
+    }
+
+    private static int GenerateRandomTemperature()
+    {
+        Random random = new Random();
+        return random.Next(-10, 40); // Simulate temperature between -10 and 40 degrees Celsius
     }
 }
