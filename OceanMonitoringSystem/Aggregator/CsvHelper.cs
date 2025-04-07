@@ -53,27 +53,64 @@ using System.Threading.Tasks;
             }
         }
 
-    // Data comes in this JSON format to aggregator
-    //{
-    //    "wavyId": "WAVY_123",
-    //    "dataType": "temperature",
-    //    "value": 25.5
-    //}
-    public static void SaveData(string wavyId, string dataType, string data)
+        // Data comes in this JSON format to aggregator
+        //{
+        //    "wavyId": "WAVY_123",
+        //    "dataType": "temperature",
+        //    "value": 25.5
+        //}
+        public void SaveData(string wavyId, string dataType, string data)
+    {
+        string csvFilePath = $"{dataType}.csv";
+        string wavyCsvFilePath = "wavy.csv";
+        try
         {
-            string csvFilePath = $"{dataType}.csv";
-            try
+            string now = DateTime.UtcNow.ToString("o");
+            using (StreamWriter sw = new StreamWriter(csvFilePath, true))
             {
-                using (StreamWriter sw = new StreamWriter(csvFilePath, true))
-                {
-                    sw.WriteLine($"{wavyId},{data}");
-                }
-                Console.WriteLine($"Data saved to {csvFilePath}");
+                sw.WriteLine($"{wavyId},{data},{now}");
             }
-            catch (Exception ex)
+            Console.WriteLine($"Data saved to {csvFilePath}");
+
+            if (File.Exists(wavyCsvFilePath))
             {
-                Console.WriteLine("Error writing to CSV: " + ex.Message);
+                List<string> csvLines = File.ReadAllLines(wavyCsvFilePath).ToList();
+                bool found = false;
+
+                for (int i = 0; i < csvLines.Count; i++)
+                {
+                    var columns = csvLines[i].Split(',');
+
+                    if (columns[0] == wavyId)
+                    {
+                        found = true;
+                        var dataTypes = columns[2] == "[]" ? new List<string>() : columns[2].Trim('[', ']').Split(';').ToList();
+                        if (!dataTypes.Contains(dataType))
+                        {
+                            dataTypes.Add(dataType);
+                            columns[2] = $"[{string.Join(";", dataTypes)}]";
+                            csvLines[i] = string.Join(",", columns);
+                            File.WriteAllLines(wavyCsvFilePath, csvLines);
+                            Console.WriteLine($"Added data type {dataType} for {wavyId} in wavy.csv");
+                        }
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    Console.WriteLine($"WAVY ID {wavyId} not found in wavy.csv. No data type update performed.");
+                }
+            }
+            else
+            {
+                Console.WriteLine("wavy.csv file does not exist.");
             }
         }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error writing to CSV: " + ex.Message);
+        }
+    }
     }
 

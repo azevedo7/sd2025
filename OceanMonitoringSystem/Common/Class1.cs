@@ -41,9 +41,6 @@
             string[] parts = message.Split('|');
             return parts.Length >= 3 && parts[2] == END;
         }
-
-
-
     }
 
     public static class WavyStatus

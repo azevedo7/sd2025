@@ -95,7 +95,8 @@ class Aggregator
                             else
                             {
                                 // Save data to CSV
-                                CsvHelper.SaveData(wavyId, dataType, value);
+                                var csvHelper = new CsvHelper();
+                                csvHelper.SaveData(wavyId, dataType, value);
                             }
 
                             SendMessageToWavy(stream, Protocol.DATA_ACK, "Data received").Wait();
@@ -106,7 +107,7 @@ class Aggregator
                             // Payload is expected to be the WAVY_ID
                             wavyId = payload;
                             string status = WavyStatus.ACTIVE; // Example status
-                            string dataTypes = ""; // Example data types
+                            string dataTypes = "[]"; // Example data types
                             string lastSync = DateTime.UtcNow.ToString("o"); // ISO 8601 format
 
                             string csvFilePath = "wavy.csv";
@@ -121,6 +122,14 @@ class Aggregator
                                     var columns = csvLines[i].Split(',');
                                     if (columns[0] == wavyId)
                                     {
+                                        // Check if the status is already active
+                                        if (columns[1] == WavyStatus.ACTIVE)
+                                        {
+                                            Console.WriteLine("Wavy is already connected.");
+                                            SendMessageToWavy(stream, Protocol.CONN_ACK, "Wavy is already connected").Wait();
+                                            return;
+                                        }
+
                                         columns[1] = WavyStatus.ACTIVE; // Update status to active
                                         csvLines[i] = string.Join(",", columns);
                                         wavyIdExists = true;
@@ -142,18 +151,15 @@ class Aggregator
 
                             File.WriteAllLines(csvFilePath, csvLines);
 
-                            string response = Protocol.CreateMessage(Protocol.CONN_ACK, "Connection acknowledged");
-                            byte[] responseBytes = Encoding.ASCII.GetBytes(response);
-                            await stream.WriteAsync(responseBytes, 0, responseBytes.Length);
+                            SendMessageToWavy(stream, Protocol.CONN_ACK, "Connection acknowledged").Wait();
                             Console.WriteLine("Sent connection acknowledgment to wavy.");
                             break;
 
                         case Protocol.DISC_REQ:
                             // Update the status in the CSV to inactive
                             CsvHelper.UpdateWavyStatus(payload, WavyStatus.INACTIVE);
-                            string discResponse = Protocol.CreateMessage(Protocol.DISC_ACK, "Disconnection acknowledged");
-                            byte[] discResponseBytes = Encoding.ASCII.GetBytes(discResponse);
-                            await stream.WriteAsync(discResponseBytes, 0, discResponseBytes.Length);
+
+                            SendMessageToWavy(stream, Protocol.DISC_ACK, "Disconnection acknowledged").Wait();
                             Console.WriteLine("Sent disconnection acknowledgment to wavy.");
                             break; // Exit the loop on disconnection request
 
@@ -166,7 +172,11 @@ class Aggregator
         }
         catch (Exception ex)
         {
-            Console.WriteLine("Error handling wavy: " + ex.Message);
+            if (wavyId != null)
+            {
+                CsvHelper.UpdateWavyStatus(wavyId, WavyStatus.INACTIVE);
+                Console.WriteLine($"Wavy with id {wavyId} disconnected!");
+            }
         }
         finally
         {
