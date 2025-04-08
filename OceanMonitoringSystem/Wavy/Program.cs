@@ -43,7 +43,7 @@ class Wavy
                 Console.WriteLine("2. Enviar estado manutenção");
                 Console.WriteLine("3. Sair");
                 Console.Write("Escolha uma opção: ");
-                string choice = Console.ReadLine();
+                string? choice = Console.ReadLine();
 
                 switch (choice)
                 {
@@ -59,13 +59,14 @@ class Wavy
                         //string dataSend = Protocol.CreateMessage(Protocol.DATA_SEND, dataInput);
                         //await SendAsync(stream, dataSend);
 
-                        var dataMessage = new
+                        var dataMessage = new[]
                         {
-                            dataType = "temperature",
-                            value = GenerateRandomTemperature().ToString(),
+                            new { dataType = "temperature", value = GenerateRandomTemperature().ToString() },
+                            new { dataType = "windSpeed", value = GenerateRandomWindSpeed().ToString() },
                         };
 
                         string dataSend = Protocol.CreateMessage(Protocol.DATA_SEND, JsonSerializer.Serialize(dataMessage));
+
                         await SendAsync(stream, dataSend);
 
                         string dataReply = await ReadAsync(stream);
@@ -114,5 +115,10 @@ class Wavy
     {
         Random random = new Random();
         return random.Next(-10, 40); // Simulate temperature between -10 and 40 degrees Celsius
+    }
+    private static int GenerateRandomWindSpeed()
+    {
+        Random random = new Random();
+        return random.Next(0, 100); // Simula velocidade do vento entre 0 e 100 km/h
     }
 }

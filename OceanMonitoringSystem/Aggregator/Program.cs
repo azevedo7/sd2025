@@ -68,39 +68,48 @@ class Aggregator
                             string dataReceived = payload;
                             Console.WriteLine("Data received: " + dataReceived);
 
-                            // Convert dataReceived to JSON object
-                            JsonDocument jsonDocument = JsonDocument.Parse(dataReceived);
-                            JsonElement jsonObject = jsonDocument.RootElement;
+                            string cleanData = dataReceived.Trim('[', ']');
+                            string[] dataParts = cleanData.Split("},{").Select(p => "{" + p.Trim('{', '}') + "}").ToArray();
+                            Console.WriteLine(dataParts);
 
-                            // Example of accessing JSON properties
-                            string dataType = jsonObject.GetProperty("dataType").GetString() ?? string.Empty;
-                            string value = jsonObject.GetProperty("value").GetString() ?? string.Empty;
-
-                            Console.WriteLine($"Data Type: {dataType}, Value: {value}");
-
-                            // Data comes in this JSON format
-                            //{
-                            //    "dataType": "temperature",
-                            //    "value": 25.5,
-                            //}
-
-                            // Aggregate data on files based by data type
-
-                            if (String.IsNullOrEmpty(dataType) || String.IsNullOrEmpty(value))
+                            for (int i = 0; i < dataParts.Length; i++)
                             {
-                                Console.WriteLine("Data type or value is empty. Not saving to CSV.");
-                                SendMessageToWavy(stream, Protocol.DATA_ACK, "Data type or value is empty").Wait();
-                                break;
-                            }
-                            else
-                            {
-                                // Save data to CSV
-                                var csvHelper = new CsvHelper();
-                                csvHelper.SaveData(wavyId, dataType, value);
-                            }
+                                Console.WriteLine($"Data part {i}: " + dataParts[i]);
+                                // Convert dataReceived to JSON object
+                                JsonDocument jsonDocument = JsonDocument.Parse(dataParts[i]);
+                                JsonElement jsonObject = jsonDocument.RootElement;
 
+                                // Example of accessing JSON properties
+                                string dataType = jsonObject.GetProperty("dataType").GetString() ?? string.Empty;
+                                string value = jsonObject.GetProperty("value").GetString() ?? string.Empty;
+
+                                Console.WriteLine($"Data Type: {dataType}, Value: {value}");
+
+                                // Data comes in this JSON format
+                                //{
+                                //    "dataType": "temperature",
+                                //    "value": 25.5,
+                                //}
+
+                                // Aggregate data on files based by data type
+
+                                if (String.IsNullOrEmpty(dataType) || String.IsNullOrEmpty(value))
+                                {
+                                    Console.WriteLine("Data type or value is empty. Not saving to CSV.");
+                                    SendMessageToWavy(stream, Protocol.DATA_ACK, "Data type or value is empty").Wait();
+                                    break;
+                                }
+                                else
+                                {
+                                    // Save data to CSV
+                                    var csvHelper = new CsvHelper();
+                                    csvHelper.SaveData(wavyId, dataType, value);
+                                }
+
+                            }
                             SendMessageToWavy(stream, Protocol.DATA_ACK, "Data received").Wait();
                             break;
+                        
 
                         case Protocol.CONN_REQ:
                             // Save to file wavy.csv WAVY_ID:status:[data_types]:last_sync
