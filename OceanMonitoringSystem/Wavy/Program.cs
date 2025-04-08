@@ -11,12 +11,19 @@ class Wavy
     {
         if (args.Length < 2)
         {
-            Console.WriteLine("Usage: Wavy <aggregator_ip> <wavy_id>");
+            Console.WriteLine("Usage: Wavy <aggregator_ip> <wavy_id> [<data_types]?");
             return;
         }
 
         string aggregatorIp = args[0];
         string wavyId = args[1];
+
+        string dataTypes = args.Length > 2 ? args[2] : ""; // Default to empty string if not provided
+        // [temperature, humidity, pressure] something like this
+        //string dataTypes = "[temperature, humidity, pressure]";
+        
+        string[] dataTypesArray = dataTypes.Trim('[', ']').Split(',');
+
         int aggregatorPort = 9000;
 
         try
@@ -28,7 +35,14 @@ class Wavy
             Console.WriteLine($"Connected to aggregator at {aggregatorIp}:{aggregatorPort}");
 
             // Send CONN_REQ with ID
-            string connReq = Protocol.CreateMessage(Protocol.CONN_REQ, wavyId);
+            string connReq;
+            if (!string.IsNullOrEmpty(dataTypes)){
+                connReq = Protocol.CreateMessage(Protocol.CONN_REQ, $"{wavyId}|${dataTypes}");
+            } else
+            {
+                connReq = Protocol.CreateMessage(Protocol.CONN_REQ, wavyId);
+            }
+
             await SendAsync(stream, connReq);
 
             // Listen for response

@@ -104,11 +104,25 @@ class Aggregator
 
                         case Protocol.CONN_REQ:
                             // Save to file wavy.csv WAVY_ID:status:[data_types]:last_sync
-                            // Payload is expected to be the WAVY_ID
+                            // Payload is expected to be the WAVY_ID or WAVY_ID|[data_types]
                             wavyId = payload;
                             string status = WavyStatus.ACTIVE; // Example status
-                            string dataTypes = "[]"; // Example data types
+                            string dataTypes = ""; // Example data types
                             string lastSync = DateTime.UtcNow.ToString("o"); // ISO 8601 format
+
+                            // Example payload: "WAVY_123|[temperature, humidity]"
+                            string[] parts = payload.Split('|');
+                            if(parts.Length == 2)
+                            {
+                                wavyId = parts[0];
+                                dataTypes = parts[1];
+                                Console.WriteLine($"Wavy ID: {wavyId}, Data Types: {dataTypes}");
+                            }
+                            else
+                            {
+                                wavyId = payload;
+                                Console.WriteLine($"Wavy ID: {wavyId}");
+                            }
 
                             string csvFilePath = "wavy.csv";
                             bool wavyIdExists = false;
@@ -131,6 +145,7 @@ class Aggregator
                                         }
 
                                         columns[1] = WavyStatus.ACTIVE; // Update status to active
+                                        columns[2] = dataTypes; // Update data types
                                         csvLines[i] = string.Join(",", columns);
                                         wavyIdExists = true;
                                         break;
