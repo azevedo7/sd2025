@@ -62,6 +62,50 @@ class Wavy
                 switch (choice)
                 {
                     case "1":
+                        while (true)
+                        {
+                            Console.WriteLine("Escolha o formato de saída:");
+                            Console.WriteLine("1. JSON");
+                            Console.WriteLine("2. CSV");
+                            Console.WriteLine("3. XML");
+                            Console.Write("Formato: ");
+                            string? formatChoice = Console.ReadLine();
+
+                            var dataMessage = new[]
+                            {
+                                new { dataType = "temperature", value = GenerateRandomTemperature().ToString() },
+                                new { dataType = "windSpeed", value = GenerateRandomWindSpeed().ToString() },
+                            };
+
+                            string serializedData;
+                            switch (formatChoice)
+                            {
+                                case "1":
+                                    Console.WriteLine("Formato JSON selecionado.");
+                                    serializedData = JsonSerializer.Serialize(dataMessage);
+                                    break;
+                                case "2":
+                                    Console.WriteLine("Formato CSV selecionado.");
+                                    serializedData = SerializeToCsv(dataMessage);
+                                    break;
+                                case "3":
+                                    Console.WriteLine("Formato XML selecionado.");
+                                    serializedData = SerializeToXml(dataMessage);
+                                    break;
+                                default:
+                                    Console.WriteLine("Opção inválida. Tente novamente.");
+                                    continue;
+                            }
+
+                            string dataSend = Protocol.CreateMessage($"{Protocol.DATA_SEND}|{formatChoice}", serializedData);
+
+                            await SendAsync(stream, dataSend);
+
+                            string dataReply = await ReadAsync(stream);
+                            Console.WriteLine("Aggregator: " + dataReply);
+                            break;
+                        }
+                        break;
                         //Console.Write("Digite os dados para enviar (envie nada para voltar): ");
                         //string dataInput = Console.ReadLine();
 
@@ -72,20 +116,6 @@ class Wavy
 
                         //string dataSend = Protocol.CreateMessage(Protocol.DATA_SEND, dataInput);
                         //await SendAsync(stream, dataSend);
-
-                        var dataMessage = new[]
-                        {
-                            new { dataType = "temperature", value = GenerateRandomTemperature().ToString() },
-                            new { dataType = "windSpeed", value = GenerateRandomWindSpeed().ToString() },
-                        };
-
-                        string dataSend = Protocol.CreateMessage(Protocol.DATA_SEND, JsonSerializer.Serialize(dataMessage));
-
-                        await SendAsync(stream, dataSend);
-
-                        string dataReply = await ReadAsync(stream);
-                        Console.WriteLine("Aggregator: " + dataReply);
-                        break;
 
                     case "2":
                         string maintenanceMessage = Protocol.CreateMessage(Protocol.MAINTENANCE_STATE, wavyId);
@@ -134,5 +164,23 @@ class Wavy
     {
         Random random = new Random();
         return random.Next(0, 100); // Simula velocidade do vento entre 0 e 100 km/h
+    }
+    private static string SerializeToCsv(object[] data)
+    {
+        var csvBuilder = new StringBuilder();
+        foreach (var item in data)
+        {
+            var properties = item.GetType().GetProperties();
+            var values = properties.Select(p => p.GetValue(item)?.ToString() ?? string.Empty);
+            csvBuilder.AppendLine(string.Join(",", values));
+        }
+        return csvBuilder.ToString();
+    }
+    private static string SerializeToXml(object[] data)
+    {
+        var serializer = new System.Xml.Serialization.XmlSerializer(data.GetType());
+        using var stringWriter = new StringWriter();
+        serializer.Serialize(stringWriter, data);
+        return stringWriter.ToString();
     }
 }
