@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -23,59 +24,7 @@ class Server
 
     public static async Task Main()
     {
-        string testJson = @"{  
-           ""temperature"": [  
-               {  
-                   ""wavyId"": ""WAVY001"",  
-                   ""timestamp"": 1648796400,  
-                   ""value"": 0.54  
-               },  
-               {  
-                   ""wavyId"": ""WAVY002"",  
-                   ""timestamp"": 1648796405,  
-                   ""value"": 0.48  
-               }  
-           ],  
-           ""salinity"": [  
-               {  
-                   ""wavyId"": ""WAVY003"",  
-                   ""timestamp"": 1648796410,  
-                   ""value"": 35.1  
-               },  
-               {  
-                   ""wavyId"": ""WAVY004"",  
-                   ""timestamp"": 1648796415,  
-                   ""value"": 34.8  
-               }  
-           ],  
-           ""ph"": [  
-               {  
-                   ""wavyId"": ""WAVY005"",  
-                   ""timestamp"": 1648796420,  
-                   ""value"": 8.1  
-               },  
-               {  
-                   ""wavyId"": ""WAVY006"",  
-                   ""timestamp"": 1648796425,  
-                   ""value"": 8.2  
-               }  
-           ],  
-           ""oxygen"": [  
-               {  
-                   ""wavyId"": ""WAVY007"",  
-                   ""timestamp"": 1648796430,  
-                   ""value"": 6.5  
-               },  
-               {  
-                   ""wavyId"": ""WAVY008"",  
-                   ""timestamp"": 1648796435,  
-                   ""value"": 6.7  
-               }  
-           ]  
-        }";
-
-        //ProcessAggregatedData(testJson);
-
+ 
         InitializeDatabase();
 
         Task serverTask = StartTcpListenerAsync(_cts.Token);
@@ -163,7 +112,9 @@ class Server
             using (var db = new LiteDatabase(DbPath))
             {
                 var collection = db.GetCollection<SensorData>("sensorData");
-                var data = collection.FindAll().ToList();
+                var data = collection.FindAll()
+                                     .OrderByDescending(item => item.ReceivedAt) // Sort by ReceivedAt in descending order
+                                     .ToList();
 
                 if (data.Count == 0)
                 {
@@ -266,47 +217,22 @@ class Server
     private static void ProcessAggregatedData(string payload)
     {
         // Parse the JSON payload
-        JsonObject jsonData = JsonNode.Parse(payload)?.AsObject();
-
-        if (jsonData == null)
+        List<SensorData> data = ParseSensorData(payload);
+        if (data == null || data.Count == 0)
         {
-            Console.WriteLine("Invalid JSON data");
+            Console.WriteLine("No valid sensor data found in the JSON.");
             return;
         }
-
-        // Iterate over the properties of the JsonObject
-        foreach (var property in jsonData)
+        else
         {
-            string dataType = property.Key;
-            var dataEntries = property.Value.AsArray();
-            List<SensorData> dataToInsert = new List<SensorData>();
-
-            foreach (var entry in dataEntries)
-            {
-                string wavyId = entry["wavyId"].ToString();
-                DateTime timestamp = DateTimeOffset.FromUnixTimeSeconds(entry["timestamp"].GetValue<long>()).DateTime;
-                string value = entry["value"].ToString();
-
-                dataToInsert.Add(new SensorData
-                {
-                    WavyId = wavyId,
-                    AggregatorId = "Aggregator1", // Placeholder
-                    DataType = dataType,
-                    Timestamp = timestamp,
-                    RawValue = value,
-                    ReceivedAt = DateTime.Now
-                });
-            }
-
-            // Store all data at once
-            StoreData(dataToInsert);
-            Console.WriteLine($"Processed {dataToInsert.Count} data points of type {dataType}");
+            StoreData(data);
+            Console.WriteLine($"Processed {data.Count}");
         }
     }
 
     private static async Task HandleClientAsync(TcpClient client)
     {
-        string clientId = "Unknown";
+        string clientId = "";
 
         try
         {
@@ -343,8 +269,14 @@ class Server
 
                         case Protocol.AGG_DATA_SEND:
                             // Process aggregated data from aggregator
-                            ProcessAggregatedData(payload);
-                            response = Protocol.CreateMessage(Protocol.AGG_DATA_ACK, $"{clientId}:SUCCESS");
+                            if (string.IsNullOrEmpty(clientId)){
+                                ProcessAggregatedData(payload);
+                                response = Protocol.CreateMessage(Protocol.AGG_DATA_ACK, $"{clientId}:SUCCESS");
+
+                            } else
+                            {
+                                response = Protocol.CreateMessage(Protocol.AGG_DATA_ACK, $"{clientId}:FAIL");
+                            }
                             break;
 
                         case Protocol.DISC_REQ:
@@ -414,6 +346,33 @@ class Server
             } 
 
         Console.WriteLine("Database initialized.");
+        }
+    }
+    private static List<SensorData> ParseSensorData(string jsonData)
+    {
+        try
+        {
+            var sensorDataList = System.Text.Json.JsonSerializer.Deserialize<List<AggregatorSensorData>>(jsonData);
+            if (sensorDataList == null || !sensorDataList.Any())
+            {
+                Console.WriteLine("No valid sensor data found in the JSON.");
+                return new List<SensorData>();
+            }
+
+            return sensorDataList.Select(data => new SensorData
+            {
+                WavyId = data.WavyId,
+                AggregatorId = data.AggregatorId,
+                DataType = data.DataType,
+                Timestamp = data.Timestamp,
+                RawValue = data.RawValue,
+                ReceivedAt = DateTime.Now
+            }).ToList();
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            Console.WriteLine($"Error parsing JSON data: {ex.Message}");
+            return new List<SensorData>();
         }
     }
 }

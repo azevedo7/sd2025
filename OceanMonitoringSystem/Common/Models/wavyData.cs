@@ -17,4 +17,13 @@ namespace Models
         public string RawValue { get; set; }
         public DateTime ReceivedAt { get; set; }
     }
+
+    public class AggregatorSensorData
+    {
+        public string WavyId { get; set; }
+        public string AggregatorId { get; set; }
+        public string DataType { get; set; }
+        public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+        public string RawValue { get; set; }
+    }
 }
