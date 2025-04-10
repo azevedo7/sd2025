@@ -9,22 +9,23 @@ class Wavy
 {
     public static async Task Main(string[] args)
     {
-        if (args.Length < 2)
+        if (args.Length < 3)
         {
-            Console.WriteLine("Usage: Wavy <aggregator_ip> <wavy_id> [<data_types]?");
+            Console.WriteLine("Usage: Wavy <aggregator_ip> <aggregator_port> <wavy_id> [<data_types]?");
             return;
         }
 
         string aggregatorIp = args[0];
-        string wavyId = args[1];
+        int aggregatorPort =int.Parse(args[1]);
+        string wavyId = args[2];
 
-        string dataTypes = args.Length > 2 ? args[2] : ""; // Default to empty string if not provided
+
+        string dataTypes = args.Length > 3 ? args[3] : ""; // Default to empty string if not provided
         // [temperature, humidity, pressure] something like this
         //string dataTypes = "[temperature, humidity, pressure]";
         
         string[] dataTypesArray = dataTypes.Trim('[', ']').Split(',');
 
-        int aggregatorPort = 9000;
 
         try
         {
