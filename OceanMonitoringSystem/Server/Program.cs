@@ -58,7 +58,6 @@ class Server
             Console.WriteLine("1. View all sensor data");
             Console.WriteLine("2. View data by WAVY ID");
             Console.WriteLine("3. View data by data type");
-            Console.WriteLine("4. View aggregators");
             Console.WriteLine("0. Exit");
             Console.Write("\nEnter option: ");
 
@@ -78,9 +77,6 @@ class Server
                     Console.Write("Enter data type: ");
                     string dataType = Console.ReadLine();
                     ViewDataByDataType(dataType);
-                    break;
-                case "4":
-                    ViewAggregators();
                     break;
                 case "0":
                     exit = true;
@@ -191,6 +187,7 @@ class Server
                 // Complete as soon as either we get a client or cancellation is requested
                 var completedTask = await Task.WhenAny(acceptClientTask, Task.Delay(-1, cancellationToken));
 
+
                 if (cancellationToken.IsCancellationRequested)
                         break;
 
@@ -239,7 +236,7 @@ class Server
 
         try
         {
-            Byte[] buffer = new Byte[4096]; // Increased buffer size for larger data payloads, maybe have a maximum size for the aggregator and server
+            Byte[] buffer = new Byte[4096]; // Increased buffer size for larger data payloads
             String data = null;
 
             // Get a stream object for reading and writing
@@ -266,7 +263,7 @@ class Server
                         case Protocol.CONN_REQ:
                             // Register aggregator connection
                             clientId = payload;
-                            RegisterAggregator(clientId);
+                            //RegisterAggregator(clientId);
                             response = Protocol.CreateMessage(Protocol.CONN_ACK, "SUCCESS");
                             break;
 
@@ -341,7 +338,6 @@ class Server
             {
                 // Create data collections
                 var sensorDataCollection = db.GetCollection<SensorData>("sensorData");
-                var aggregatorsCollection = db.GetCollection<Aggregator>("aggregators");
 
                 sensorDataCollection.EnsureIndex(x => x.WavyId);
                 sensorDataCollection.EnsureIndex(x => x.AggregatorId);
@@ -377,75 +373,6 @@ class Server
         {
             Console.WriteLine($"Error parsing JSON data: {ex.Message}");
             return new List<SensorData>();
-        }
-    }
-    private static void RegisterAggregator(string clientId)
-    {
-        if (string.IsNullOrWhiteSpace(clientId))
-        {
-            Console.WriteLine("Invalid client ID. Registration failed.");
-            return;
-        }
-
-        lock (DbLock)
-        {
-            using (var db = new LiteDatabase(DbPath))
-            {
-                var collection = db.GetCollection<Aggregator>("aggregators");
-
-                var existingAggregator = collection.FindOne(a => a.ClientId == clientId);
-                if (existingAggregator == null)
-                {
-                    var newAggregator = new Aggregator
-                    {
-                        ClientId = clientId,
-                        Status = "CONNECTED",
-                        RegisteredAt = DateTime.Now
-                    };
-
-                    collection.Insert(newAggregator);
-                    Console.WriteLine($"Aggregator {clientId} registered successfully.");
-                }
-                else
-                {
-                    existingAggregator.Status = "CONNECTED";
-                    existingAggregator.LastConnectedAt = DateTime.Now;
-                    collection.Update(existingAggregator);
-                    Console.WriteLine($"Aggregator {clientId} reconnected successfully.");
-                }
-            }
-        }
-    }
-    private static void ViewAggregators()
-    {
-        lock (DbLock)
-        {
-            using (var db = new LiteDatabase(DbPath))
-            {
-                var collection = db.GetCollection<Aggregator>("aggregators");
-                var aggregators = collection.FindAll().OrderBy(a => a.RegisteredAt).ToList();
-
-                if (aggregators.Count == 0)
-                {
-                    Console.WriteLine("No aggregators found.");
-                    return;
-                }
-
-                Console.WriteLine("\n{0,-20} {1,-15} {2,-20} {3,-20}",
-                    "Client ID", "Status", "Registered At", "Last Connected At");
-                Console.WriteLine(new string('-', 75));
-
-                foreach (var aggregator in aggregators)
-                {
-                    Console.WriteLine("{0,-20} {1,-15} {2,-20} {3,-20}",
-                        aggregator.ClientId,
-                        aggregator.Status,
-                        aggregator.RegisteredAt.ToString("yyyy-MM-dd HH:mm:ss"),
-                        aggregator.LastConnectedAt.ToString("yyyy-MM-dd HH:mm:ss") ?? "N/A");
-                }
-
-                Console.WriteLine($"\nTotal aggregators: {aggregators.Count}");
-            }
         }
     }
 }

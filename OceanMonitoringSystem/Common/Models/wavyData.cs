@@ -26,13 +26,4 @@ namespace Models
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
         public string RawValue { get; set; }
     }
-
-    public class Aggregator
-    {
-        public string ClientId { get; set; }
-        public string Status { get; set; }
-        public DateTime RegisteredAt { get; set; } = DateTime.Now;
-        public DateTime LastConnectedAt { get; set; } = DateTime.Now;
-    }
-    
 }

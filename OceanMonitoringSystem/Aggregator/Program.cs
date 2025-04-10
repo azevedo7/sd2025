@@ -85,20 +85,10 @@ class Aggregator
 
     // Add the missing declaration for 'serverClient' at the class level.  
     private static TcpClient serverClient;
-    private static string aggregatorId = string.Empty;
 
     public static async Task Main()
     {
-        Console.Write("Enter Aggregator ID: ");
-        aggregatorId = Console.ReadLine();
-
-        Console.Write("Enter Aggregator Port: ");
-        if (!int.TryParse(Console.ReadLine(), out int aggregatorPort))
-        {
-            Console.WriteLine("Invalid port. Exiting...");
-            return;
-        }
-
+        int wavyPort = 9000;
         string serverIp = "127.0.0.1";
         int serverPort = 8080;
 
@@ -110,23 +100,25 @@ class Aggregator
         int[] lastBytesReceived = [];
         int numberOfRecords = 0;
 
-        // Connect to server
-        bool connected = await ConnectToServerAsync(serverIp, serverPort);
 
-        if(!connected) {
-            Console.WriteLine("Failed to connect to server. Exiting...");
-            return;
-        }
+        Console.WriteLine(currentBytes);
+
+        // Connect to the main server
+        serverClient = new TcpClient();
+        await serverClient.ConnectAsync(IPAddress.Parse(serverIp), serverPort);
+        serverStream = serverClient.GetStream();
+        Console.WriteLine("Connected to server.");
 
         // Start periodic data send to server
         _ = Task.Run(() => PeriodicDataSendAsync(sendInterval));
 
         Console.WriteLine("Data: " + GetWavyDataFromFile().ToString());
 
+
         // Start listening for wavys
-        TcpListener wavyListener = new TcpListener(IPAddress.Parse("127.0.0.1"), aggregatorPort);
+        TcpListener wavyListener = new TcpListener(IPAddress.Parse("127.0.0.1"), wavyPort);
         wavyListener.Start();
-        Console.WriteLine($"Aggregator {aggregatorId} listening for wavys on port {aggregatorPort}...");
+        Console.WriteLine($"Aggregator listening for wavys on port {wavyPort}...");
 
         while (true)
         {
@@ -134,55 +126,6 @@ class Aggregator
             Console.WriteLine("Wavy connected.");
             _ = Task.Run(() => HandleWavyAsync(wavyClient));
         }
-    }
-
-    private static async Task<bool> ConnectToServerAsync(string serverIp, int serverPort)
-    {
-        int maxRetries = 3;
-        int retryCount = 0;
-
-        while (retryCount < maxRetries)
-        {
-            try
-            {
-                // Connect to the main server
-                serverClient = new TcpClient();
-                await serverClient.ConnectAsync(IPAddress.Parse(serverIp), serverPort);
-                serverStream = serverClient.GetStream();
-                Console.WriteLine("Connected to server.");
-
-                // Send connection request
-                string connReqMessage = Protocol.CreateMessage(Protocol.CONN_REQ, aggregatorId);
-                byte[] connReqBytes = Encoding.ASCII.GetBytes(connReqMessage);
-                await serverStream.WriteAsync(connReqBytes, 0, connReqBytes.Length);
-                Console.WriteLine("Connection request sent to server.");
-
-                // Wait for connection acknowledgment
-                byte[] ackBuffer = new byte[1024];
-                int bytesRead = await serverStream.ReadAsync(ackBuffer, 0, ackBuffer.Length);
-                string ackMessage = Encoding.ASCII.GetString(ackBuffer, 0, bytesRead);
-
-                if (ackMessage.Contains(Protocol.CONN_ACK))
-                {
-                    Console.WriteLine("Connection acknowledgment received from server.");
-                    return true;
-                }
-                else
-                {
-                    Console.WriteLine("Connection acknowledgment not received. Retrying...");
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Failed to connect to server: {ex.Message}. Retrying...");
-            }
-
-            retryCount++;
-            await Task.Delay(2000); // Wait 1 second before retrying
-        }
-
-        Console.WriteLine("Failed to connect to server after 3 attempts.");
-        return false;
     }
 
     private static async Task HandleWavyAsync(TcpClient wavyClient)
