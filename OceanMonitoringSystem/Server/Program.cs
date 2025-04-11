@@ -266,7 +266,7 @@ class Server
                         case Protocol.CONN_REQ:
                             // Register aggregator connection
                             clientId = payload;
-                            RegisterAggregator(clientId);
+                            //RegisterAggregator(clientId);
                             response = Protocol.CreateMessage(Protocol.CONN_ACK, "SUCCESS");
                             break;
 

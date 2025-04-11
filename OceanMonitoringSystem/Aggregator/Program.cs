@@ -33,9 +33,6 @@ class Aggregator
             // Serialize and save back to the file
             string updatedJsonData = JsonSerializer.Serialize(existingData, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(WavyDataFilePath, updatedJsonData);
-
-            Console.WriteLine("Added data to WavyData: " + data.ToString());
-            
         }
         finally
         {
@@ -57,7 +54,6 @@ class Aggregator
                 AggregatorSensorData[] data = GetWavyDataFromFile();
 
 
-
                 if (data.Length > 0)
                 {
                     string aggregatedPayload = JsonSerializer.Serialize(data);
@@ -66,10 +62,7 @@ class Aggregator
                     // Clear the WavyData file after sending
                     CleanWavyData();
                 }
-                else
-                {
-                    Console.WriteLine("No data to send to server.");
-                }
+
             }
             catch (Exception ex)
             {
@@ -113,15 +106,14 @@ class Aggregator
         // Connect to server
         bool connected = await ConnectToServerAsync(serverIp, serverPort);
 
-        if(!connected) {
+        if (!connected)
+        {
             Console.WriteLine("Failed to connect to server. Exiting...");
             return;
         }
 
         // Start periodic data send to server
         _ = Task.Run(() => PeriodicDataSendAsync(sendInterval));
-
-        Console.WriteLine("Data: " + GetWavyDataFromFile().ToString());
 
         // Start listening for wavys
         TcpListener wavyListener = new TcpListener(IPAddress.Parse("127.0.0.1"), aggregatorPort);
@@ -217,11 +209,9 @@ class Aggregator
 
                             string cleanData = dataReceived.Trim('[', ']');
                             string[] dataParts = cleanData.Split("},{").Select(p => "{" + p.Trim('{', '}') + "}").ToArray();
-                            Console.WriteLine(dataParts);
 
                             for (int i = 0; i < dataParts.Length; i++)
                             {
-                                Console.WriteLine($"Data part {i}: " + dataParts[i]);
                                 // Convert dataReceived to JSON object
                                 JsonDocument jsonDocument = JsonDocument.Parse(dataParts[i]);
                                 JsonElement jsonObject = jsonDocument.RootElement;
@@ -245,17 +235,18 @@ class Aggregator
 
                                     var dataWithId = new AggregatorSensorData
                                     {
-                                    DataType = dataType,
-                                    RawValue = value,
-                                    WavyId = wavyId
+                                        DataType = dataType,
+                                        RawValue = value,
+                                        WavyId = wavyId
                                     };
 
                                     SaveWavyDataToFile(dataWithId);
                                 }
                             }
                             SendMessageToWavy(stream, Protocol.DATA_ACK, "Data received").Wait();
+                            Console.WriteLine("Sent acknowledgment to wavy.");
                             break;
-                        
+
 
                         case Protocol.CONN_REQ:
                             // Save to file wavy.csv WAVY_ID:status:[data_types]:last_sync
@@ -267,7 +258,7 @@ class Aggregator
 
                             // Example payload: "WAVY_123|[temperature, humidity]"
                             string[] parts = payload.Split('|');
-                            if(parts.Length == 2)
+                            if (parts.Length == 2)
                             {
                                 wavyId = parts[0];
                                 dataTypes = parts[1];
