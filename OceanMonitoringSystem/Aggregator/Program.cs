@@ -12,34 +12,51 @@ class Aggregator
 {
     private static readonly string WavyDataFilePath = "WavyData.json";
     private static readonly Mutex WavyDataMutex = new();
+    // Use a timeout for mutex acquisition to prevent deadlocks
+    private static readonly int MutexTimeout = 5000; // 5 seconds timeout
 
     private static void SaveWavyDataToFile(AggregatorSensorData data)
     {
-        WavyDataMutex.WaitOne();
         try
         {
-            List<AggregatorSensorData> existingData = new();
-
-            // Load existing data from the file
-            if (File.Exists(WavyDataFilePath))
+            bool mutexAcquired = false;
+            try
             {
-                string jsonData = File.ReadAllText(WavyDataFilePath);
-                existingData = JsonSerializer.Deserialize<List<AggregatorSensorData>>(jsonData) ?? new List<AggregatorSensorData>();
+                // Try to acquire mutex with timeout
+                mutexAcquired = WavyDataMutex.WaitOne(MutexTimeout);
+                if (!mutexAcquired)
+                {
+                    Console.WriteLine("Failed to acquire mutex while saving WavyData. Skipping this operation.");
+                    return;
+                }
+
+                List<AggregatorSensorData> existingData = new();
+
+                // Load existing data from the file
+                if (File.Exists(WavyDataFilePath))
+                {
+                    string jsonData = File.ReadAllText(WavyDataFilePath);
+                    existingData = JsonSerializer.Deserialize<List<AggregatorSensorData>>(jsonData) ?? new List<AggregatorSensorData>();
+                }
+
+                // Add the new data
+                existingData.Add(data);
+
+                // Serialize and save back to the file
+                string updatedJsonData = JsonSerializer.Serialize(existingData, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(WavyDataFilePath, updatedJsonData);
             }
-
-            // Add the new data
-            existingData.Add(data);
-
-            // Serialize and save back to the file
-            string updatedJsonData = JsonSerializer.Serialize(existingData, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(WavyDataFilePath, updatedJsonData);
-
-            Console.WriteLine("Added data to WavyData: " + data.ToString());
-            
+            finally
+            {
+                if (mutexAcquired)
+                {
+                    WavyDataMutex.ReleaseMutex();
+                }
+            }
         }
-        finally
+        catch (Exception ex)
         {
-            WavyDataMutex.ReleaseMutex();
+            Console.WriteLine("Error saving WavyData to file: " + ex.Message);
         }
     }
 
@@ -49,41 +66,65 @@ class Aggregator
         {
             await Task.Delay(interval);
 
-
+            AggregatorSensorData[] data = null;
+            bool mutexAcquired = false;
+            
             try
             {
-                WavyDataMutex.WaitOne();
+                // Try to acquire mutex with timeout
+                mutexAcquired = WavyDataMutex.WaitOne(MutexTimeout);
+                if (!mutexAcquired)
+                {
+                    Console.WriteLine("Failed to acquire mutex during periodic data send. Will try again later.");
+                    continue;
+                }
 
-                AggregatorSensorData[] data = GetWavyDataFromFile();
-
-
+                data = GetWavyDataFromFile();
 
                 if (data.Length > 0)
                 {
                     string aggregatedPayload = JsonSerializer.Serialize(data);
-                    await SendAggregatedDataToServer(aggregatedPayload);
-
-                    // Clear the WavyData file after sending
-                    CleanWavyData();
-                }
-                else
-                {
-                    Console.WriteLine("No data to send to server.");
+                    
+                    // Release mutex before network operations to prevent long holding times
+                    WavyDataMutex.ReleaseMutex();
+                    mutexAcquired = false;
+                    
+                    try
+                    {
+                        await SendAggregatedDataToServer(aggregatedPayload);
+                        
+                        // Re-acquire mutex to clean data after successful send
+                        mutexAcquired = WavyDataMutex.WaitOne(MutexTimeout);
+                        if (mutexAcquired)
+                        {
+                            CleanWavyData();
+                        }
+                        else
+                        {
+                            Console.WriteLine("Failed to acquire mutex while cleaning WavyData. Will try in next cycle.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("Error sending data to server: " + ex.Message);
+                    }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Error sending data to server: " + ex.Message);
+                Console.WriteLine("Error in periodic data send: " + ex.Message);
             }
             finally
             {
-                WavyDataMutex.ReleaseMutex();
+                if (mutexAcquired)
+                {
+                    WavyDataMutex.ReleaseMutex();
+                }
             }
         }
     }
+    
     private static NetworkStream serverStream;
-
-    // Add the missing declaration for 'serverClient' at the class level.  
     private static TcpClient serverClient;
     private static string aggregatorId = string.Empty;
 
@@ -104,24 +145,50 @@ class Aggregator
 
         // Aggregator settings
         int maxBytes = 2048;
-        int currentBytes = Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(GetWavyDataFromFile()));
-        int sendInterval = 1000; // 10 seconds - time to send data to server
+        
+        int currentBytes = 0;
+        bool mutexAcquired = false;
+        
+        try
+        {
+            // Try to acquire mutex with timeout
+            mutexAcquired = WavyDataMutex.WaitOne(MutexTimeout);
+            if (mutexAcquired)
+            {
+                currentBytes = Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(GetWavyDataFromFile()));
+            }
+            else
+            {
+                Console.WriteLine("Failed to acquire mutex during startup. Using default value for currentBytes.");
+            }
+        }
+        finally
+        {
+            if (mutexAcquired)
+            {
+                WavyDataMutex.ReleaseMutex();
+            }
+        }
 
-        int[] lastBytesReceived = [];
-        int numberOfRecords = 0;
+        if (currentBytes > maxBytes)
+        {
+            Console.WriteLine("Data size exceeds maximum limit. Exiting...");
+            return;
+        }
+        
+        int sendInterval = 10000; // 1 second - time to send data to server
 
         // Connect to server
         bool connected = await ConnectToServerAsync(serverIp, serverPort);
 
-        if(!connected) {
+        if (!connected)
+        {
             Console.WriteLine("Failed to connect to server. Exiting...");
             return;
         }
 
         // Start periodic data send to server
         _ = Task.Run(() => PeriodicDataSendAsync(sendInterval));
-
-        Console.WriteLine("Data: " + GetWavyDataFromFile().ToString());
 
         // Start listening for wavys
         TcpListener wavyListener = new TcpListener(IPAddress.Parse("127.0.0.1"), aggregatorPort);
@@ -178,7 +245,7 @@ class Aggregator
             }
 
             retryCount++;
-            await Task.Delay(2000); // Wait 1 second before retrying
+            await Task.Delay(2000); // Wait 2 seconds before retrying
         }
 
         Console.WriteLine("Failed to connect to server after 3 attempts.");
@@ -187,13 +254,13 @@ class Aggregator
 
     private static async Task HandleWavyAsync(TcpClient wavyClient)
     {
-        string wavyId = string.Empty; // Initialize wavyId to avoid CS0165 error
+        string wavyId = string.Empty;
+
         try
         {
             using NetworkStream stream = wavyClient.GetStream();
             byte[] buffer = new byte[1024];
             string data;
-
 
             while (true)
             {
@@ -210,52 +277,65 @@ class Aggregator
                     switch (type)
                     {
                         case Protocol.DATA_SEND:
-
                             // Payload -> DATA as json
                             string dataReceived = payload;
                             Console.WriteLine("Data received: " + dataReceived);
 
-                            string cleanData = dataReceived.Trim('[', ']');
-                            string[] dataParts = cleanData.Split("},{").Select(p => "{" + p.Trim('{', '}') + "}").ToArray();
-                            Console.WriteLine(dataParts);
+                            // Parse the JSON data
+                            var sensorDataList = JsonSerializer.Deserialize<List<DataWavy>>(dataReceived);
+                            Console.WriteLine(sensorDataList.Count + " data types received.");
 
-                            for (int i = 0; i < dataParts.Length; i++)
+                            bool processingSuccessful = true;
+                            string responseMessage = "Data received";
+                            
+                            if (sensorDataList != null)
                             {
-                                Console.WriteLine($"Data part {i}: " + dataParts[i]);
-                                // Convert dataReceived to JSON object
-                                JsonDocument jsonDocument = JsonDocument.Parse(dataParts[i]);
-                                JsonElement jsonObject = jsonDocument.RootElement;
-
-                                // Example of accessing JSON properties
-                                string dataType = jsonObject.GetProperty("dataType").GetString() ?? string.Empty;
-                                string value = jsonObject.GetProperty("value").GetString() ?? string.Empty;
-
-                                // Aggregate data on files based by data type
-                                if (String.IsNullOrEmpty(dataType) || String.IsNullOrEmpty(value))
+                                foreach (var sensorData in sensorDataList)
                                 {
-                                    Console.WriteLine("Data type or value is empty. Not saving to CSV.");
-                                    SendMessageToWavy(stream, Protocol.DATA_ACK, "Data type or value is empty").Wait();
-                                    break;
-                                }
-                                else
-                                {
-                                    // Save data to CSV
-                                    var csvHelper = new CsvHelper();
-                                    csvHelper.SaveData(wavyId, dataType, value);
-
-                                    var dataWithId = new AggregatorSensorData
+                                    if (string.IsNullOrEmpty(sensorData.dataType) || string.IsNullOrEmpty(sensorData.value))
                                     {
-                                    DataType = dataType,
-                                    RawValue = value,
-                                    WavyId = wavyId
-                                    };
+                                        Console.WriteLine("Data type or value is empty. Not saving to file.");
+                                        processingSuccessful = false;
+                                        responseMessage = "Invalid data received";
+                                        continue;
+                                    }
 
-                                    SaveWavyDataToFile(dataWithId);
+                                    try
+                                    {
+                                        // Save data to CSV - doesn't need mutex lock
+                                        var csvHelper = new CsvHelper();
+                                        csvHelper.SaveData(wavyId, sensorData.dataType, sensorData.value);
+
+                                        // Create data object before acquiring mutex
+                                        var dataWithId = new AggregatorSensorData
+                                        {
+                                            DataType = sensorData.dataType,
+                                            RawValue = sensorData.value,
+                                            WavyId = wavyId,
+                                            AggregatorId = aggregatorId,
+                                        };
+
+                                        // Save data to JSON file - needs mutex lock
+                                        SaveWavyDataToFile(dataWithId);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Console.WriteLine($"Error processing sensor data: {ex.Message}");
+                                        processingSuccessful = false;
+                                        responseMessage = "Error while saving data";
+                                    }
                                 }
                             }
-                            SendMessageToWavy(stream, Protocol.DATA_ACK, "Data received").Wait();
+                            else
+                            {
+                                Console.WriteLine("Failed to parse sensor data.");
+                                processingSuccessful = false;
+                                responseMessage = "Failed to parse data";
+                            }
+
+                            await SendMessageToWavy(stream, Protocol.DATA_ACK, responseMessage);
+                            Console.WriteLine($"Sent acknowledgment to wavy: {responseMessage}");
                             break;
-                        
 
                         case Protocol.CONN_REQ:
                             // Save to file wavy.csv WAVY_ID:status:[data_types]:last_sync
@@ -267,7 +347,7 @@ class Aggregator
 
                             // Example payload: "WAVY_123|[temperature, humidity]"
                             string[] parts = payload.Split('|');
-                            if(parts.Length == 2)
+                            if (parts.Length == 2)
                             {
                                 wavyId = parts[0];
                                 dataTypes = parts[1];
@@ -291,14 +371,6 @@ class Aggregator
                                     var columns = csvLines[i].Split(',');
                                     if (columns[0] == wavyId)
                                     {
-                                        //// Check if the status is already active
-                                        //if (columns[1] == WavyStatus.ACTIVE)
-                                        //{
-                                        //    Console.WriteLine("Wavy is already connected.");
-                                        //    SendMessageToWavy(stream, Protocol.CONN_ACK, "Wavy is already connected").Wait();
-                                        //    return;
-                                        //}
-
                                         columns[1] = WavyStatus.ACTIVE; // Update status to active
                                         columns[2] = dataTypes; // Update data types
                                         csvLines[i] = string.Join(",", columns);
@@ -321,7 +393,7 @@ class Aggregator
 
                             File.WriteAllLines(csvFilePath, csvLines);
 
-                            SendMessageToWavy(stream, Protocol.CONN_ACK, "Connection acknowledged").Wait();
+                            await SendMessageToWavy(stream, Protocol.CONN_ACK, "Connection acknowledged");
                             Console.WriteLine("Sent connection acknowledgment to wavy.");
                             break;
 
@@ -329,15 +401,17 @@ class Aggregator
                             // Update the status in the CSV to inactive
                             CsvHelper.UpdateWavyStatus(payload, WavyStatus.INACTIVE);
 
-                            SendMessageToWavy(stream, Protocol.DISC_ACK, "Disconnection acknowledged").Wait();
+                            await SendMessageToWavy(stream, Protocol.DISC_ACK, "Disconnection acknowledged");
                             Console.WriteLine("Sent disconnection acknowledgment to wavy.");
                             break; // Exit the loop on disconnection request
+                            
                         case Protocol.MAINTENANCE_STATE:
                             // Update the status in the CSV to maintenance
                             CsvHelper.UpdateWavyStatus(payload, WavyStatus.MAINTENANCE);
-                            SendMessageToWavy(stream, Protocol.STATUS_ACK, "Maintenance state acknowledged").Wait();
+                            await SendMessageToWavy(stream, Protocol.STATUS_ACK, "Maintenance state acknowledged");
                             Console.WriteLine("Sent maintenance state acknowledgment to wavy.");
                             break;
+                            
                         default:
                             Console.WriteLine("Unknown message type received.");
                             break;
@@ -347,7 +421,8 @@ class Aggregator
         }
         catch (Exception ex)
         {
-            if (wavyId != null)
+            Console.WriteLine("Error handling wavy: " + ex.Message);
+            if (!string.IsNullOrEmpty(wavyId))
             {
                 CsvHelper.UpdateWavyStatus(wavyId, WavyStatus.INACTIVE);
                 Console.WriteLine($"Wavy with id {wavyId} disconnected!");
@@ -361,34 +436,49 @@ class Aggregator
 
     private static async Task SendAggregatedDataToServer(string aggregatedPayload)
     {
-        if (serverStream == null) return;
-
-        string message = Protocol.CreateMessage(Protocol.AGG_DATA_SEND, aggregatedPayload);
-        byte[] msgBytes = Encoding.ASCII.GetBytes(message);
-
-        try
+        while (true) // Keep trying to send data until successful
         {
-            await serverStream.WriteAsync(msgBytes, 0, msgBytes.Length);
-            Console.WriteLine("Sent to server: " + aggregatedPayload);
-
-            // Wait for acknowledgment from the server
-            byte[] ackBuffer = new byte[1024];
-            int bytesRead = await serverStream.ReadAsync(ackBuffer, 0, ackBuffer.Length);
-            string ackMessage = Encoding.ASCII.GetString(ackBuffer, 0, bytesRead);
-
-            if (ackMessage.Contains("ACK"))
+            try
             {
-                Console.WriteLine("Acknowledgment received from server. Clearing Data.");
+                if (serverStream == null || !serverClient.Connected)
+                {
+                    Console.WriteLine("Server connection lost. Attempting to reconnect...");
+                    bool reconnected = await ReconnectToServerAsync();
+                    if (!reconnected)
+                    {
+                        Console.WriteLine("Reconnection failed. Retrying in 5 seconds...");
+                        await Task.Delay(5000); // Wait before retrying
+                        continue;
+                    }
+                }
 
+                string message = Protocol.CreateMessage(Protocol.AGG_DATA_SEND, aggregatedPayload);
+                byte[] msgBytes = Encoding.ASCII.GetBytes(message);
+
+                await serverStream.WriteAsync(msgBytes, 0, msgBytes.Length);
+                Console.WriteLine("Sent to server: " + aggregatedPayload);
+
+                // Wait for acknowledgment from the server
+                byte[] ackBuffer = new byte[1024];
+                int bytesRead = await serverStream.ReadAsync(ackBuffer, 0, ackBuffer.Length);
+                string ackMessage = Encoding.ASCII.GetString(ackBuffer, 0, bytesRead);
+
+                if (ackMessage.Contains("ACK"))
+                {
+                    Console.WriteLine("Acknowledgment received from server. Clearing Data.");
+                    break; // Exit the loop after successful send
+                }
+                else
+                {
+                    Console.WriteLine("Acknowledgment not received. Retrying...");
+                }
             }
-            else
+            catch (Exception ex)
             {
-                Console.WriteLine("Acknowledgment not received. Retaining WavyData.");
+                Console.WriteLine("Failed to send to server: " + ex.Message);
+                Console.WriteLine("Retrying in 5 seconds...");
+                await Task.Delay(5000); // Wait before retrying
             }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine("Failed to send to server: " + ex.Message);
         }
     }
 
@@ -397,11 +487,11 @@ class Aggregator
         string message = Protocol.CreateMessage(messageType, payload);
         byte[] messageBytes = Encoding.ASCII.GetBytes(message);
         await stream.WriteAsync(messageBytes, 0, messageBytes.Length);
-        Console.WriteLine($"Sent to wavy: {payload}");
+        Console.WriteLine($"Sent to wavy: {messageType} - {payload}");
     }
+    
     private static AggregatorSensorData[] GetWavyDataFromFile()
     {
-        WavyDataMutex.WaitOne();
         try
         {
             if (File.Exists(WavyDataFilePath))
@@ -411,10 +501,11 @@ class Aggregator
             }
             return Array.Empty<AggregatorSensorData>();
         }
-        finally
+        catch (Exception ex)
         {
-            WavyDataMutex.ReleaseMutex();
-        }
+            Console.WriteLine("Error reading WavyData file: " + ex.Message);
+            return Array.Empty<AggregatorSensorData>();
+        }      
     }
 
     // Only call when having the mutex locked
@@ -434,7 +525,52 @@ class Aggregator
         }
         catch (Exception ex)
         {
-            Console.WriteLine("Error while deleting WavyData file: " + ex.Message);
+            Console.WriteLine($"Error cleaning WavyData file: {ex.Message}");
         }
+    }
+
+    private static async Task<bool> ReconnectToServerAsync()
+    {
+        int maxRetries = 5;
+        int retryCount = 0;
+
+        while (retryCount < maxRetries)
+        {
+            try
+            {
+                serverClient?.Close(); // Close the previous connection if it exists
+                serverClient = new TcpClient();
+                await serverClient.ConnectAsync("127.0.0.1", 8080); // Replace with your server IP and port
+                serverStream = serverClient.GetStream();
+                Console.WriteLine("Reconnected to server.");
+
+                // Send connection request again
+                string connReqMessage = Protocol.CreateMessage(Protocol.CONN_REQ, aggregatorId);
+                byte[] connReqBytes = Encoding.ASCII.GetBytes(connReqMessage);
+                await serverStream.WriteAsync(connReqBytes, 0, connReqBytes.Length);
+                Console.WriteLine("Connection request sent to server.");
+
+                // Wait for acknowledgment
+                byte[] ackBuffer = new byte[1024];
+                int bytesRead = await serverStream.ReadAsync(ackBuffer, 0, ackBuffer.Length);
+                string ackMessage = Encoding.ASCII.GetString(ackBuffer, 0, bytesRead);
+
+                if (ackMessage.Contains(Protocol.CONN_ACK))
+                {
+                    Console.WriteLine("Reconnection acknowledgment received from server.");
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Reconnection attempt {retryCount + 1} failed: {ex.Message}");
+            }
+
+            retryCount++;
+            await Task.Delay(5000); // Wait before retrying
+        }
+
+        Console.WriteLine("Failed to reconnect to server after multiple attempts.");
+        return false;
     }
 }

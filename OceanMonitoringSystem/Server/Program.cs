@@ -266,13 +266,13 @@ class Server
                         case Protocol.CONN_REQ:
                             // Register aggregator connection
                             clientId = payload;
-                            RegisterAggregator(clientId);
+                            //RegisterAggregator(clientId);
                             response = Protocol.CreateMessage(Protocol.CONN_ACK, "SUCCESS");
                             break;
 
                         case Protocol.AGG_DATA_SEND:
                             // Process aggregated data from aggregator
-                            if (string.IsNullOrEmpty(clientId)){
+                            if (!string.IsNullOrEmpty(clientId)){
                                 ProcessAggregatedData(payload);
                                 response = Protocol.CreateMessage(Protocol.AGG_DATA_ACK, $"{clientId}:SUCCESS");
 
@@ -296,6 +296,7 @@ class Server
 
                     // Send response back to the client
                     byte[] responseBytes = Encoding.ASCII.GetBytes(response);
+                    Console.WriteLine($"Sending response: {response}");
                     await stream.WriteAsync(responseBytes, 0, responseBytes.Length);
                 }
             }

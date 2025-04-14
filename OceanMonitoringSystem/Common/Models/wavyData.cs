@@ -34,5 +34,11 @@ namespace Models
         public DateTime RegisteredAt { get; set; } = DateTime.Now;
         public DateTime LastConnectedAt { get; set; } = DateTime.Now;
     }
-    
+
+    public class DataWavy
+    {
+        public string dataType { get; set; }
+        public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+        public string value { get; set; }
+    }
 }

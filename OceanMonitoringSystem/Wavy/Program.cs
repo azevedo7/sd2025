@@ -3,113 +3,217 @@ using System.Net.Sockets;
 using System.Text;
 using OceanMonitoringSystem.Common;
 using System.Text.Json;
-
+using Models;
+using System.Security.Cryptography.X509Certificates;
 
 class Wavy
 {
+    private static DataWavy[] unsentData = Array.Empty<DataWavy>();
+    private static readonly Random random = new Random();
+    private static bool isRunning = true;
+    private static readonly object unsentDataLock = new object();
+
+    public static void ClearUnsentData()
+    {
+        lock (unsentDataLock)
+        {
+            unsentData = Array.Empty<DataWavy>();
+        }
+    }
+
+    public static void AddToUnsentData(DataWavy[] newData)
+    {
+        lock (unsentDataLock)
+        {
+            unsentData = unsentData.Concat(newData).ToArray();
+        }
+    }
+
+    public static DataWavy[] GetUnsentData()
+    {
+        lock (unsentDataLock)
+        {
+            return unsentData.ToArray();
+        }
+    }
+
     public static async Task Main(string[] args)
     {
-        if (args.Length < 3)
-        {
-            Console.WriteLine("Usage: Wavy <aggregator_ip> <aggregator_port> <wavy_id> [<data_types]?");
-            return;
-        }
+        string aggregatorIp = "127.0.0.1";
+        int aggregatorPort = 9000;
+        string wavyId = "Wavy1";
 
-        string aggregatorIp = args[0];
-        int aggregatorPort =int.Parse(args[1]);
-        string wavyId = args[2];
-
-
-        string dataTypes = args.Length > 3 ? args[3] : ""; // Default to empty string if not provided
-        // [temperature, humidity, pressure] something like this
-        //string dataTypes = "[temperature, humidity, pressure]";
+        // Allow user to override defaults
+        Console.WriteLine($"Using default settings: IP={aggregatorIp}, Port={aggregatorPort}, ID={wavyId}");
+        Console.WriteLine("Press Enter to accept or input new values.");
         
-        string[] dataTypesArray = dataTypes.Trim('[', ']').Split(',');
+        Console.Write("Enter aggregator IP (or press Enter for default): ");
+        string input = Console.ReadLine() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(input))
+            aggregatorIp = input;
+            
+        Console.Write("Enter aggregator port (or press Enter for default): ");
+        input = Console.ReadLine() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(input) && int.TryParse(input, out int port))
+            aggregatorPort = port;
+            
+        Console.Write("Enter Wavy ID (or press Enter for default): ");
+        input = Console.ReadLine() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(input))
+            wavyId = input;
 
+        Console.Write("Enter data generation interval in seconds (default 5): ");
+        input = Console.ReadLine() ?? string.Empty;
+        int dataGenerationInterval = 5;
+        if (!string.IsNullOrWhiteSpace(input) && int.TryParse(input, out int interval))
+            dataGenerationInterval = interval;
 
-        try
+        // Start the automatic data generation in a separate task
+        _ = Task.Run(() => GenerateDataPeriodically(dataGenerationInterval * 1000));
+
+        // Handle console commands in a separate task
+        _ = Task.Run(() => HandleConsoleCommands(wavyId));
+
+        while (isRunning)
         {
-            using TcpClient client = new TcpClient();
-            await client.ConnectAsync(aggregatorIp, aggregatorPort);
-            using NetworkStream stream = client.GetStream();
-
-            Console.WriteLine($"Connected to aggregator at {aggregatorIp}:{aggregatorPort}");
-
-            // Send CONN_REQ with ID
-            string connReq;
-            if (!string.IsNullOrEmpty(dataTypes)){
-                connReq = Protocol.CreateMessage(Protocol.CONN_REQ, $"{wavyId}|${dataTypes}");
-            } else
+            try
             {
-                connReq = Protocol.CreateMessage(Protocol.CONN_REQ, wavyId);
-            }
+                using TcpClient client = new TcpClient();
+                Console.WriteLine($"Connecting to aggregator at {aggregatorIp}:{aggregatorPort}...");
+                await client.ConnectAsync(aggregatorIp, aggregatorPort);
+                using NetworkStream stream = client.GetStream();
 
-            await SendAsync(stream, connReq);
+                Console.WriteLine($"Connected to aggregator at {aggregatorIp}:{aggregatorPort}");
 
-            // Listen for response
-            string response = await ReadAsync(stream);
-            Console.WriteLine("Aggregator: " + response);
+                // Send CONN_REQ with ID
+                string connReq = Protocol.CreateMessage(Protocol.CONN_REQ, wavyId);
+                await SendAsync(stream, connReq);
 
-            // Simple text input loop
-            while (true)
-            {
-                Console.WriteLine("Menu:");
-                Console.WriteLine("1. Enviar dados");
-                Console.WriteLine("2. Enviar estado manutenção");
-                Console.WriteLine("3. Sair");
-                Console.Write("Escolha uma opção: ");
-                string? choice = Console.ReadLine();
+                // Listen for response
+                string response = await ReadAsync(stream);
+                var (connAckMessage, _) = Protocol.ParseMessage(response);
 
-                switch (choice)
+                if (connAckMessage != Protocol.CONN_ACK)
                 {
-                    case "1":
-                        //Console.Write("Digite os dados para enviar (envie nada para voltar): ");
-                        //string dataInput = Console.ReadLine();
+                    Console.WriteLine("Unexpected response. Retrying connection...");
+                    await Task.Delay(3000);
+                    continue;
+                }
+                Console.WriteLine("Connection acknowledged by aggregator.");
 
-                        //if(dataInput == null || dataInput.Length == 0)
-                        //{
-                        //    break;
-                        //}
-
-                        //string dataSend = Protocol.CreateMessage(Protocol.DATA_SEND, dataInput);
-                        //await SendAsync(stream, dataSend);
-
-                        var dataMessage = new[]
+                // Main communication loop
+                while (isRunning)
+                {
+                    // Try to send unsent data if any
+                    DataWavy[] currentUnsentData = GetUnsentData();
+                    if (currentUnsentData.Length > 0)
+                    {
+                        Console.WriteLine($"Sending {currentUnsentData.Length} data points to aggregator...");
+                        await SendAsync(stream, Protocol.CreateMessage(Protocol.DATA_SEND, JsonSerializer.Serialize(currentUnsentData)));
+                        
+                        try
                         {
-                            new { dataType = "temperature", value = GenerateRandomTemperature().ToString() },
-                            new { dataType = "windSpeed", value = GenerateRandomWindSpeed().ToString() },
-                        };
+                            string dataReply = await ReadAsync(stream);
+                            var (messageType, _) = Protocol.ParseMessage(dataReply);
 
-                        string dataSend = Protocol.CreateMessage(Protocol.DATA_SEND, JsonSerializer.Serialize(dataMessage));
+                            if (messageType == Protocol.DATA_ACK)
+                            {
+                                Console.WriteLine("Data acknowledged by aggregator.");
+                                ClearUnsentData();
+                            }
+                            else
+                            {
+                                Console.WriteLine("Unexpected response. Keeping data in unsentData.");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error receiving acknowledgment: {ex.Message}");
+                            break; // Break the inner loop to reconnect
+                        }
+                    }
 
-                        await SendAsync(stream, dataSend);
-
-                        string dataReply = await ReadAsync(stream);
-                        Console.WriteLine("Aggregator: " + dataReply);
-                        break;
-
-                    case "2":
-                        string maintenanceMessage = Protocol.CreateMessage(Protocol.MAINTENANCE_STATE, wavyId);
-                        await SendAsync(stream, maintenanceMessage);
-                        string maintenanceReply = await ReadAsync(stream);
-                        Console.WriteLine("Aggregator: " + maintenanceReply);
-                        break;
-
-                    case "3":
-                        string discReq = Protocol.CreateMessage(Protocol.DISC_REQ, wavyId);
-                        await SendAsync(stream, discReq);
-                        Console.WriteLine("Disconnect request sent.");
-                        return;
-
-                    default:
-                        Console.WriteLine("Opção inválida. Tente novamente.");
-                        break;
+                    // Wait a short time before checking for more data to send
+                    await Task.Delay(1000);
                 }
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Connection error: {ex.Message}");
+            }
+            finally
+            {
+                Console.WriteLine("Reconnecting in 3 seconds...");
+                await Task.Delay(3000); // Wait for 3 seconds before reconnecting
+            }
         }
-        catch (Exception ex)
+
+        Console.WriteLine("Wavy shutting down.");
+    }
+
+    private static async Task GenerateDataPeriodically(int intervalMs)
+    {
+        while (isRunning)
         {
-            Console.WriteLine("Error connecting to aggregator: " + ex.Message);
+            // Generate random data
+            DataWavy[] dataPoints = new[]
+            {
+                new DataWavy { dataType = "temperature", value = GenerateRandomTemperature().ToString() },
+                new DataWavy { dataType = "humidity", value = GenerateRandomHumidity().ToString() },
+                new DataWavy { dataType = "windSpeed", value = GenerateRandomWindSpeed().ToString() },
+                new DataWavy { dataType = "waterLevel", value = GenerateRandomWaterLevel().ToString() }
+            };
+
+            // Add to unsent data
+            AddToUnsentData(dataPoints);
+            
+            Console.WriteLine($"Generated data: Temperature={dataPoints[0].value}°C, Humidity={dataPoints[1].value}%, " +
+                              $"Wind Speed={dataPoints[2].value}km/h, Water Level={dataPoints[3].value}m");
+
+            // Wait for the next interval
+            await Task.Delay(intervalMs);
+        }
+    }
+
+    private static async Task HandleConsoleCommands(string wavyId)
+    {
+        while (isRunning)
+        {
+            Console.WriteLine("\nCommands: [g]enerate data manually, [m]aintenance mode, [q]uit");
+            Console.Write("> ");
+            string command = Console.ReadLine()?.ToLower() ?? "";
+
+            switch (command)
+            {
+                case "g":
+                    // Generate data manually
+                    DataWavy[] manualData = new[]
+                    {
+                        new DataWavy { dataType = "temperature", value = GenerateRandomTemperature().ToString() },
+                        new DataWavy { dataType = "windSpeed", value = GenerateRandomWindSpeed().ToString() },
+                    };
+                    AddToUnsentData(manualData);
+                    Console.WriteLine("Manual data generated and added to queue.");
+                    break;
+
+                case "m":
+                    Console.WriteLine("Maintenance mode not implemented in automatic sending mode.");
+                    break;
+
+                case "q":
+                    isRunning = false;
+                    Console.WriteLine("Shutting down...");
+                    break;
+
+                default:
+                    if (!string.IsNullOrWhiteSpace(command))
+                    {
+                        Console.WriteLine("Unknown command.");
+                    }
+                    break;
+            }
+
+            await Task.Delay(100); // Small delay to prevent CPU spinning
         }
     }
 
@@ -128,12 +232,21 @@ class Wavy
 
     private static int GenerateRandomTemperature()
     {
-        Random random = new Random();
-        return random.Next(-10, 40); // Simulate temperature between -10 and 40 degrees Celsius
+        return random.Next(-10, 40); // Temperature between -10 and 40 degrees Celsius
     }
+
     private static int GenerateRandomWindSpeed()
     {
-        Random random = new Random();
-        return random.Next(0, 100); // Simula velocidade do vento entre 0 e 100 km/h
+        return random.Next(0, 100); // Wind speed between 0 and 100 km/h
+    }
+
+    private static int GenerateRandomHumidity()
+    {
+        return random.Next(20, 100); // Humidity between 20% and 100%
+    }
+
+    private static double GenerateRandomWaterLevel()
+    {
+        return Math.Round(random.NextDouble() * 10, 2); // Water level between 0 and 10 meters, with 2 decimal places
     }
 }
