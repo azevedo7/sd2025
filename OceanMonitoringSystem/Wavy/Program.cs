@@ -35,12 +35,14 @@ class Wavy
             string response = await ReadAsync(stream);
             Console.WriteLine("Aggregator: " + response);
 
+            bool manutencao = false;
+
             // Simple text input loop
             while (true)
             {
                 Console.WriteLine("Menu:");
                 Console.WriteLine("1. Enviar dados");
-                Console.WriteLine("2. Enviar estado manutenção");
+                Console.WriteLine($"2. {(manutencao ? "Sair da manutenção" : "Entrar em manutenção")}");
                 Console.WriteLine("3. Sair");
                 Console.Write("Escolha uma opção: ");
                 string choice = Console.ReadLine();
@@ -73,10 +75,21 @@ class Wavy
                         break;
 
                     case "2":
+                        if (manutencao)
+                        {
+                            Console.WriteLine("A sair do estado de manutenção...");
+                        }
+                        else
+                        {
+                            Console.WriteLine("A entrar em estado de manutenção...");
+                        }
+
                         string maintenanceMessage = Protocol.CreateMessage(Protocol.MAINTENANCE_STATE, wavyId);
                         await SendAsync(stream, maintenanceMessage);
                         string maintenanceReply = await ReadAsync(stream);
                         Console.WriteLine("Aggregator: " + maintenanceReply);
+
+                        manutencao = !manutencao
                         break;
 
                     case "3":
