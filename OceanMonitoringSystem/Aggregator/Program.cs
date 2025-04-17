@@ -405,11 +405,18 @@ class Aggregator
                             Console.WriteLine("Sent disconnection acknowledgment to wavy.");
                             break; // Exit the loop on disconnection request
                             
-                        case Protocol.MAINTENANCE_STATE:
+                        case Protocol.MAINTENANCE_STATE_UP:
                             // Update the status in the CSV to maintenance
                             CsvHelper.UpdateWavyStatus(payload, WavyStatus.MAINTENANCE);
-                            await SendMessageToWavy(stream, Protocol.STATUS_ACK, "Maintenance state acknowledged");
-                            Console.WriteLine("Sent maintenance state acknowledgment to wavy.");
+                            await SendMessageToWavy(stream, Protocol.STATUS_ACK, "Maintenance state up acknowledged");
+                            Console.WriteLine("Sent maintenance state up acknowledgment to wavy.");
+                            break;
+
+                        case Protocol.MAINTENANCE_STATE_DOWN:
+                            // Update the status in the CSV to active
+                            CsvHelper.UpdateWavyStatus(payload, WavyStatus.ACTIVE);
+                            await SendMessageToWavy(stream, Protocol.STATUS_ACK, "Maintenance state down acknowledged");
+                            Console.WriteLine("Sent maintenance state down acknowledgment to wavy.");
                             break;
                             
                         default:

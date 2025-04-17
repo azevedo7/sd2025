@@ -1,58 +1,30 @@
 [
   {
-    "WavyId": "wavy2",
-    "AggregatorId": "1",
-    "DataType": "temperature",
-    "Timestamp": "2025-04-12T09:47:44.937276Z",
-    "RawValue": "26"
-  },
-  {
-    "WavyId": "wavy2",
-    "AggregatorId": "1",
-    "DataType": "humidity",
-    "Timestamp": "2025-04-12T09:47:44.937866Z",
-    "RawValue": "26"
-  },
-  {
-    "WavyId": "wavy2",
-    "AggregatorId": "1",
-    "DataType": "windSpeed",
-    "Timestamp": "2025-04-12T09:47:44.938217Z",
-    "RawValue": "56"
-  },
-  {
-    "WavyId": "wavy2",
-    "AggregatorId": "1",
-    "DataType": "waterLevel",
-    "Timestamp": "2025-04-12T09:47:44.93853Z",
-    "RawValue": "8.49"
-  },
-  {
     "WavyId": "Wavy1",
     "AggregatorId": "1",
     "DataType": "temperature",
-    "Timestamp": "2025-04-12T09:47:47.140952Z",
-    "RawValue": "-6"
+    "Timestamp": "2025-04-17T16:30:46.2141Z",
+    "RawValue": "34"
   },
   {
     "WavyId": "Wavy1",
     "AggregatorId": "1",
     "DataType": "humidity",
-    "Timestamp": "2025-04-12T09:47:47.142566Z",
-    "RawValue": "20"
+    "Timestamp": "2025-04-17T16:30:46.214353Z",
+    "RawValue": "34"
   },
   {
     "WavyId": "Wavy1",
     "AggregatorId": "1",
     "DataType": "windSpeed",
-    "Timestamp": "2025-04-12T09:47:47.143665Z",
-    "RawValue": "10"
+    "Timestamp": "2025-04-17T16:30:46.214524Z",
+    "RawValue": "17"
   },
   {
     "WavyId": "Wavy1",
     "AggregatorId": "1",
     "DataType": "waterLevel",
-    "Timestamp": "2025-04-12T09:47:47.145918Z",
-    "RawValue": "7.51"
+    "Timestamp": "2025-04-17T16:30:46.214674Z",
+    "RawValue": "9.75"
   }
 ]

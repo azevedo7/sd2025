@@ -15,7 +15,8 @@
         public const string STATUS_ACK = "STATUS_ACK";
         public const string DISC_REQ = "DISC_REQ";
         public const string DISC_ACK = "DISC_ACK";
-        public const string MAINTENANCE_STATE = "MAINTENANCE_STATE";
+        public const string MAINTENANCE_STATE_UP = "MAINTENANCE_STATE_UP";
+        public const string MAINTENANCE_STATE_DOWN = "MAINTENANCE_STATE_DOWN";
 
         // Message delimiter
         public const string END = "END";

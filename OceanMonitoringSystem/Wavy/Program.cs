@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net.Sockets;
 using System.Text;
 using OceanMonitoringSystem.Common;
@@ -12,6 +12,7 @@ class Wavy
     private static bool isRunning = true;
     private static readonly object unsentDataLock = new object();
     private static bool manutencao = false;
+    private static bool manutencaoSent = false;
 
     public static void ClearUnsentData()
     {
@@ -97,6 +98,26 @@ class Wavy
 
                 while (isRunning)
                 {
+                    // check if in maintenance mode
+
+                    while(manutencao)
+                    {
+                        if(!manutencaoSent)
+                        {
+                            await SendAsync(stream, Protocol.CreateMessage(Protocol.MAINTENANCE_STATE_UP, wavyId));
+                            manutencaoSent = true;
+                        }
+
+                        Console.WriteLine("In maintenance mode. Waiting...");
+                        await Task.Delay(1000);
+                    }
+
+                    if(!manutencao && manutencaoSent)
+                    {
+                        await SendAsync(stream, Protocol.CreateMessage(Protocol.MAINTENANCE_STATE_DOWN, wavyId));
+                        manutencaoSent = false;
+                    }
+
                     DataWavy[] currentUnsentData = GetUnsentData();
                     if (currentUnsentData.Length > 0)
                     {
@@ -191,6 +212,7 @@ class Wavy
 
                 case "m":
                     manutencao = !manutencao;
+                    // send maintenance command to aggregator
                     Console.WriteLine(manutencao ? "Maintenance mode enabled." : "Maintenance mode disabled.");
                     break;
 
