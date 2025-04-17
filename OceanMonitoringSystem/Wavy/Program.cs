@@ -1,10 +1,9 @@
-﻿using System;
+using System;
 using System.Net.Sockets;
 using System.Text;
 using OceanMonitoringSystem.Common;
 using System.Text.Json;
 using Models;
-using System.Security.Cryptography.X509Certificates;
 
 class Wavy
 {
@@ -12,6 +11,7 @@ class Wavy
     private static readonly Random random = new Random();
     private static bool isRunning = true;
     private static readonly object unsentDataLock = new object();
+    private static bool manutencao = false;
 
     public static void ClearUnsentData()
     {
@@ -43,20 +43,19 @@ class Wavy
         int aggregatorPort = 9000;
         string wavyId = "Wavy1";
 
-        // Allow user to override defaults
         Console.WriteLine($"Using default settings: IP={aggregatorIp}, Port={aggregatorPort}, ID={wavyId}");
         Console.WriteLine("Press Enter to accept or input new values.");
-        
+
         Console.Write("Enter aggregator IP (or press Enter for default): ");
         string input = Console.ReadLine() ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(input))
             aggregatorIp = input;
-            
+
         Console.Write("Enter aggregator port (or press Enter for default): ");
         input = Console.ReadLine() ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(input) && int.TryParse(input, out int port))
             aggregatorPort = port;
-            
+
         Console.Write("Enter Wavy ID (or press Enter for default): ");
         input = Console.ReadLine() ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(input))
@@ -68,10 +67,7 @@ class Wavy
         if (!string.IsNullOrWhiteSpace(input) && int.TryParse(input, out int interval))
             dataGenerationInterval = interval;
 
-        // Start the automatic data generation in a separate task
         _ = Task.Run(() => GenerateDataPeriodically(dataGenerationInterval * 1000));
-
-        // Handle console commands in a separate task
         _ = Task.Run(() => HandleConsoleCommands(wavyId));
 
         while (isRunning)
@@ -85,11 +81,9 @@ class Wavy
 
                 Console.WriteLine($"Connected to aggregator at {aggregatorIp}:{aggregatorPort}");
 
-                // Send CONN_REQ with ID
                 string connReq = Protocol.CreateMessage(Protocol.CONN_REQ, wavyId);
                 await SendAsync(stream, connReq);
 
-                // Listen for response
                 string response = await ReadAsync(stream);
                 var (connAckMessage, _) = Protocol.ParseMessage(response);
 
@@ -101,16 +95,14 @@ class Wavy
                 }
                 Console.WriteLine("Connection acknowledged by aggregator.");
 
-                // Main communication loop
                 while (isRunning)
                 {
-                    // Try to send unsent data if any
                     DataWavy[] currentUnsentData = GetUnsentData();
                     if (currentUnsentData.Length > 0)
                     {
                         Console.WriteLine($"Sending {currentUnsentData.Length} data points to aggregator...");
                         await SendAsync(stream, Protocol.CreateMessage(Protocol.DATA_SEND, JsonSerializer.Serialize(currentUnsentData)));
-                        
+
                         try
                         {
                             string dataReply = await ReadAsync(stream);
@@ -129,11 +121,10 @@ class Wavy
                         catch (Exception ex)
                         {
                             Console.WriteLine($"Error receiving acknowledgment: {ex.Message}");
-                            break; // Break the inner loop to reconnect
+                            break;
                         }
                     }
 
-                    // Wait a short time before checking for more data to send
                     await Task.Delay(1000);
                 }
             }
@@ -144,7 +135,7 @@ class Wavy
             finally
             {
                 Console.WriteLine("Reconnecting in 3 seconds...");
-                await Task.Delay(3000); // Wait for 3 seconds before reconnecting
+                await Task.Delay(3000);
             }
         }
 
@@ -155,7 +146,12 @@ class Wavy
     {
         while (isRunning)
         {
-            // Generate random data
+            if (manutencao)
+            {
+                await Task.Delay(intervalMs);
+                continue;
+            }
+
             DataWavy[] dataPoints = new[]
             {
                 new DataWavy { dataType = "temperature", value = GenerateRandomTemperature().ToString() },
@@ -164,13 +160,11 @@ class Wavy
                 new DataWavy { dataType = "waterLevel", value = GenerateRandomWaterLevel().ToString() }
             };
 
-            // Add to unsent data
             AddToUnsentData(dataPoints);
-            
+
             Console.WriteLine($"Generated data: Temperature={dataPoints[0].value}°C, Humidity={dataPoints[1].value}%, " +
                               $"Wind Speed={dataPoints[2].value}km/h, Water Level={dataPoints[3].value}m");
 
-            // Wait for the next interval
             await Task.Delay(intervalMs);
         }
     }
@@ -179,14 +173,13 @@ class Wavy
     {
         while (isRunning)
         {
-            Console.WriteLine("\nCommands: [g]enerate data manually, [m]aintenance mode, [q]uit");
+            Console.WriteLine("\nCommands: [g]enerate data manually, [m]aintenance toggle, [q]uit");
             Console.Write("> ");
             string command = Console.ReadLine()?.ToLower() ?? "";
 
             switch (command)
             {
                 case "g":
-                    // Generate data manually
                     DataWavy[] manualData = new[]
                     {
                         new DataWavy { dataType = "temperature", value = GenerateRandomTemperature().ToString() },
@@ -197,7 +190,8 @@ class Wavy
                     break;
 
                 case "m":
-                    Console.WriteLine("Maintenance mode not implemented in automatic sending mode.");
+                    manutencao = !manutencao;
+                    Console.WriteLine(manutencao ? "Maintenance mode enabled." : "Maintenance mode disabled.");
                     break;
 
                 case "q":
@@ -213,7 +207,7 @@ class Wavy
                     break;
             }
 
-            await Task.Delay(100); // Small delay to prevent CPU spinning
+            await Task.Delay(100);
         }
     }
 
@@ -232,21 +226,21 @@ class Wavy
 
     private static int GenerateRandomTemperature()
     {
-        return random.Next(-10, 40); // Temperature between -10 and 40 degrees Celsius
+        return random.Next(-10, 40);
     }
 
     private static int GenerateRandomWindSpeed()
     {
-        return random.Next(0, 100); // Wind speed between 0 and 100 km/h
+        return random.Next(0, 100);
     }
 
     private static int GenerateRandomHumidity()
     {
-        return random.Next(20, 100); // Humidity between 20% and 100%
+        return random.Next(20, 100);
     }
 
     private static double GenerateRandomWaterLevel()
     {
-        return Math.Round(random.NextDouble() * 10, 2); // Water level between 0 and 10 meters, with 2 decimal places
+        return Math.Round(random.NextDouble() * 10, 2);
     }
 }
