@@ -7,6 +7,8 @@ using System.Text;
 using OceanMonitoringSystem.Common;
 using System.Text.Json;
 using Models;
+using Grpc.Net.Client;
+using GrpcDataParser;
 
 /**
  * @class Aggregator
@@ -297,192 +299,100 @@ class Aggregator
     private static async Task HandleWavyAsync(TcpClient wavyClient)
     {
         string wavyId = string.Empty;
+        using NetworkStream stream = wavyClient.GetStream();
+        byte[] buffer = new byte[1024];
+        using var channel = GrpcChannel.ForAddress("http://localhost:50051");
+        var parserClient = new DataParser.DataParserClient(channel);
 
         try
         {
-            using NetworkStream stream = wavyClient.GetStream();
-            byte[] buffer = new byte[1024];
-            string data;
-
             while (true)
             {
-                // Read incoming data from Wavy
                 int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-                if (bytesRead == 0) break; // Connection closed
+                if (bytesRead == 0) break;
 
-                data = Encoding.ASCII.GetString(buffer, 0, bytesRead);
-                Console.WriteLine("Received from wavy: " + data);
+                string message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                var (messageType, payload) = Protocol.ParseMessage(message);
+                Console.WriteLine("Received data from Wavy " + message);
 
-                // Protocol message validation
-                if (Protocol.IsValidMessage(data))
+                switch (messageType)
                 {
-                    var (type, payload) = Protocol.ParseMessage(data);
+                    case Protocol.CONN_REQ:
+                        wavyId = payload;
+                        await SendMessageToWavy(stream, Protocol.CONN_ACK);
+                        Console.WriteLine($"Wavy {wavyId} connected.");
+                        break;
 
-                    switch (type)
-                    {
-                        case Protocol.DATA_SEND:
-                            // Handle sensor data from Wavy
-                            string dataReceived = payload;
-                            Console.WriteLine("Data received: " + dataReceived);
-
-                            // Parse the JSON data
-                            var sensorDataList = JsonSerializer.Deserialize<List<DataWavy>>(dataReceived);
-                            Console.WriteLine(sensorDataList.Count + " data types received.");
-
-                            bool processingSuccessful = true;
-                            string responseMessage = "Data received";
-                            
-                            if (sensorDataList != null)
-                            {
-                                foreach (var sensorData in sensorDataList)
-                                {
-                                    // Validate data before processing
-                                    if (string.IsNullOrEmpty(sensorData.dataType) || string.IsNullOrEmpty(sensorData.value))
-                                    {
-                                        Console.WriteLine("Data type or value is empty. Not saving to file.");
-                                        processingSuccessful = false;
-                                        responseMessage = "Invalid data received";
-                                        continue;
-                                    }
-
-                                    try
-                                    {
-                                        // Save data to CSV for historical records
-                                        var csvHelper = new CsvHelper();
-                                        csvHelper.SaveData(wavyId, sensorData.dataType, sensorData.value);
-
-                                        // Prepare data object with metadata
-                                        var dataWithId = new AggregatorSensorData
-                                        {
-                                            DataType = sensorData.dataType,
-                                            RawValue = sensorData.value,
-                                            WavyId = wavyId,
-                                            AggregatorId = aggregatorId,
-                                        };
-
-                                        // Store data for later forwarding to server
-                                        SaveWavyDataToFile(dataWithId);
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        Console.WriteLine($"Error processing sensor data: {ex.Message}");
-                                        processingSuccessful = false;
-                                        responseMessage = "Error while saving data";
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                Console.WriteLine("Failed to parse sensor data.");
-                                processingSuccessful = false;
-                                responseMessage = "Failed to parse data";
-                            }
-
-                            // Send acknowledgment to Wavy
-                            await SendMessageToWavy(stream, Protocol.DATA_ACK, responseMessage);
-                            Console.WriteLine($"Sent acknowledgment to wavy: {responseMessage}");
-                            break;
-
-                        case Protocol.CONN_REQ:
-                            // Handle Wavy connection request
-                            wavyId = payload;
-                            string status = WavyStatus.ACTIVE;
-                            string dataTypes = "";
-                            string lastSync = DateTime.UtcNow.ToString("o"); // ISO 8601 format
-
-                            // Parse connection payload for optional data types
+                    case Protocol.DATA_SEND:
+                        try
+                        {
                             string[] parts = payload.Split('|');
-                            if (parts.Length == 2)
+                            if (parts.Length >= 2)
                             {
-                                wavyId = parts[0];
-                                dataTypes = parts[1];
-                                Console.WriteLine($"Wavy ID: {wavyId}, Data Types: {dataTypes}");
-                            }
-                            else
-                            {
-                                wavyId = payload;
-                                Console.WriteLine($"Wavy ID: {wavyId}");
-                            }
+                                string dataFormat = parts[0];
+                                string dataPayload = parts[1];
 
-                            // Register or update the Wavy in the tracking CSV
-                            string csvFilePath = "wavy.csv";
-                            bool wavyIdExists = false;
-                            List<string> csvLines = new List<string>();
-
-                            if (File.Exists(csvFilePath))
-                            {
-                                csvLines = File.ReadAllLines(csvFilePath).ToList();
-                                for (int i = 0; i < csvLines.Count; i++)
+                                string jsonPayload = string.Empty;
+                                switch (dataFormat)
                                 {
-                                    var columns = csvLines[i].Split(',');
-                                    if (columns[0] == wavyId)
-                                    {
-                                        columns[1] = WavyStatus.ACTIVE; // Update status to active
-                                        columns[2] = dataTypes; // Update data types
-                                        csvLines[i] = string.Join(",", columns);
-                                        wavyIdExists = true;
+                                    case "CSV":
+                                        // Parse CSV in gRPC
+                                        var request = new ParseRequest { Data = dataPayload, From = dataFormat, To = "JSON" };
+                                        var response = parserClient.Parse(request);
+                                        jsonPayload = response.Result;
                                         break;
-                                    }
+                                    case "JSON":
+                                        jsonPayload = dataPayload;
+                                        break;
                                 }
+
+                                Console.WriteLine("Data points: " + jsonPayload);
+                                var dataPoints = JsonSerializer.Deserialize<List<SensorDataPayload>>(jsonPayload);
+                                foreach (var dataPoint in dataPoints)
+                                {
+                                    string dataType = dataPoint.type;
+                                    string processedValue = dataPoint.value.ToString();
+
+                                    var aggregatorData = new AggregatorSensorData
+                                    {
+                                        WavyId = wavyId,
+                                        AggregatorId = aggregatorId,
+                                        DataType = dataType,
+                                        Timestamp = DateTime.UtcNow,
+                                        RawValue = processedValue
+                                    };
+
+                                    SaveWavyDataToFile(aggregatorData);
+                                }
+                                await SendMessageToWavy(stream, Protocol.DATA_ACK);
                             }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error processing data from Wavy {wavyId}: {ex.Message}");
+                        }
+                        break;
 
-                            // Add new Wavy record if not found
-                            if (!wavyIdExists)
-                            {
-                                string newLine = $"{wavyId},{status},{dataTypes},{lastSync}";
-                                csvLines.Add(newLine);
-                                Console.WriteLine("Added new wavy to CSV: " + newLine);
-                            }
-                            else
-                            {
-                                Console.WriteLine("Updated existing wavy in CSV: " + wavyId);
-                            }
+                    case Protocol.MAINTENANCE_STATE_UP:
+                        Console.WriteLine($"Wavy {wavyId} entered maintenance mode.");
+                        await SendMessageToWavy(stream, Protocol.STATUS_ACK);
+                        break;
 
-                            File.WriteAllLines(csvFilePath, csvLines);
+                    case Protocol.MAINTENANCE_STATE_DOWN:
+                        Console.WriteLine($"Wavy {wavyId} exited maintenance mode.");
+                        await SendMessageToWavy(stream, Protocol.STATUS_ACK);
+                        break;
 
-                            // Send connection acknowledgment
-                            await SendMessageToWavy(stream, Protocol.CONN_ACK, "Connection acknowledged");
-                            Console.WriteLine("Sent connection acknowledgment to wavy.");
-                            break;
-
-                        case Protocol.DISC_REQ:
-                            // Handle Wavy disconnection request
-                            CsvHelper.UpdateWavyStatus(payload, WavyStatus.INACTIVE);
-
-                            await SendMessageToWavy(stream, Protocol.DISC_ACK, "Disconnection acknowledged");
-                            Console.WriteLine("Sent disconnection acknowledgment to wavy.");
-                            break; // Exit the loop on disconnection request
-                            
-                        case Protocol.MAINTENANCE_STATE_UP:
-                            // Handle Wavy entering maintenance mode
-                            CsvHelper.UpdateWavyStatus(payload, WavyStatus.MAINTENANCE);
-                            await SendMessageToWavy(stream, Protocol.STATUS_ACK, "Maintenance state up acknowledged");
-                            Console.WriteLine("Sent maintenance state up acknowledgment to wavy.");
-                            break;
-
-                        case Protocol.MAINTENANCE_STATE_DOWN:
-                            // Handle Wavy exiting maintenance mode
-                            CsvHelper.UpdateWavyStatus(payload, WavyStatus.ACTIVE);
-                            await SendMessageToWavy(stream, Protocol.STATUS_ACK, "Maintenance state down acknowledged");
-                            Console.WriteLine("Sent maintenance state down acknowledgment to wavy.");
-                            break;
-                            
-                        default:
-                            Console.WriteLine("Unknown message type received.");
-                            break;
-                    }
+                    case Protocol.DISC_REQ:
+                        await SendMessageToWavy(stream, Protocol.DISC_ACK);
+                        Console.WriteLine($"Wavy {wavyId} disconnected.");
+                        return;
                 }
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine("Error handling wavy: " + ex.Message);
-            // Mark Wavy as inactive in case of connection error
-            if (!string.IsNullOrEmpty(wavyId))
-            {
-                CsvHelper.UpdateWavyStatus(wavyId, WavyStatus.INACTIVE);
-                Console.WriteLine($"Wavy with id {wavyId} disconnected!");
-            }
+            Console.WriteLine($"Error handling Wavy {wavyId}: {ex.Message}");
         }
         finally
         {
@@ -656,5 +566,11 @@ class Aggregator
 
         Console.WriteLine("Failed to reconnect to server after multiple attempts.");
         return false;
+    }
+
+    public class SensorDataPayload
+    {
+        public string type { get; set; }
+        public double value { get; set; }
     }
 }

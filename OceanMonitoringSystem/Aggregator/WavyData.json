@@ -3,28 +3,28 @@
     "WavyId": "Wavy1",
     "AggregatorId": "1",
     "DataType": "temperature",
-    "Timestamp": "2025-04-17T16:30:46.2141Z",
-    "RawValue": "34"
+    "Timestamp": "2025-05-18T16:13:24.433451Z",
+    "RawValue": "4"
   },
   {
     "WavyId": "Wavy1",
     "AggregatorId": "1",
     "DataType": "humidity",
-    "Timestamp": "2025-04-17T16:30:46.214353Z",
-    "RawValue": "34"
+    "Timestamp": "2025-05-18T16:13:24.435585Z",
+    "RawValue": "97"
   },
   {
     "WavyId": "Wavy1",
     "AggregatorId": "1",
     "DataType": "windSpeed",
-    "Timestamp": "2025-04-17T16:30:46.214524Z",
-    "RawValue": "17"
+    "Timestamp": "2025-05-18T16:13:24.437363Z",
+    "RawValue": "94"
   },
   {
     "WavyId": "Wavy1",
     "AggregatorId": "1",
     "DataType": "waterLevel",
-    "Timestamp": "2025-04-17T16:30:46.214674Z",
-    "RawValue": "9.75"
+    "Timestamp": "2025-05-18T16:13:24.443924Z",
+    "RawValue": "3.03"
   }
 ]

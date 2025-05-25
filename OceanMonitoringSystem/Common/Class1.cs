@@ -61,6 +61,10 @@
          */
         public static string CreateMessage(string messageType, string payload = "")
         {
+            if (messageType == DATA_SEND)
+            {
+                return $"{messageType}|JSON|{payload}|{END}";
+            }
             return $"{messageType}|{payload}|{END}";
         }
 
@@ -74,8 +78,14 @@
         public static (string messageType, string payload) ParseMessage(string message)
         {
             string[] parts = message.Split('|');
-            if (parts.Length < 3 || parts[2] != END)
+            if (parts.Length < 3 || parts[parts.Length - 1] != END)
                 throw new FormatException("Invalid message format");
+
+            if (parts[0] == DATA_SEND)
+            {
+                // For DATA_SEND, return the data type and payload
+                return (parts[0], $"{parts[1]}|{parts[2]}");
+            }
 
             return (parts[0], parts[1]);
         }

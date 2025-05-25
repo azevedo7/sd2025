@@ -98,4 +98,17 @@ namespace Models
         /** @property The actual sensor reading value */
         public string value { get; set; }
     }
+
+    /**
+     * @class SensorDataPayload
+     * @description Represents the JSON payload structure for sensor data transmission
+     */
+    public class SensorDataPayload
+    {
+        /** @property Type of sensor data (e.g., "temperature", "waterLevel", etc.) */
+        public string type { get; set; }
+        
+        /** @property The actual sensor reading value */
+        public double value { get; set; }
+    }
 }

@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+option csharp_namespace = "GrpcDataParser";
+
+package data;
+
+service DataParser {
+	rpc Parse(ParseRequest) returns (ParseResponse);
+}
+
+message ParseRequest {
+	string from = 1;
+	string to = 2;
+	string data = 3;
+}
+
+message ParseResponse {
+	string result = 1;
+}

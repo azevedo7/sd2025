@@ -1,0 +1,255 @@
+syntax = "proto3";
+
+package oceandataanalysis;
+
+// Service definition for ocean data analysis
+service OceanDataAnalysisService {
+  // Analyze sensor data from aggregators
+  rpc AnalyzeSensorData (SensorDataRequest) returns (AnalysisResponse) {}
+  
+  // Detect anomalies in sensor readings
+  rpc DetectAnomalies (SensorDataRequest) returns (AnomalyResponse) {}
+  
+  // Generate statistical reports
+  rpc GenerateReport (ReportRequest) returns (ReportResponse) {}
+  
+  // Perform trend analysis over time
+  rpc AnalyzeTrends (TrendAnalysisRequest) returns (TrendResponse) {}
+  
+  // Get real-time analysis metrics
+  rpc GetMetrics (MetricsRequest) returns (MetricsResponse) {}
+}
+
+// Request message containing sensor data from your system
+message SensorDataRequest {
+  repeated OceanSensorData sensor_data = 1;
+  string analysis_type = 2; // "basic", "advanced", "correlation"
+  repeated string metrics_requested = 3; // specific metrics to calculate
+}
+
+// Sensor data message that matches your C# models
+message OceanSensorData {
+  string wavy_id = 1;
+  string aggregator_id = 2;
+  string data_type = 3; // "temperature", "waterLevel", "humidity", "windSpeed"
+  string raw_value = 4; // stored as string for flexibility like your model
+  int64 timestamp = 5; // Unix timestamp
+  int64 received_at = 6; // When server received the data
+}
+
+// Analysis response with comprehensive results
+message AnalysisResponse {
+  repeated AnalysisMetric metrics = 1;
+  repeated Correlation correlations = 2;
+  QualityAssessment quality = 3;
+  string status = 4;
+  string message = 5;
+  int64 analysis_timestamp = 6;
+}
+
+// Individual analysis metric
+message AnalysisMetric {
+  string metric_name = 1;
+  string data_type = 2;
+  double value = 3;
+  string unit = 4;
+  string wavy_id = 5; // Optional: specific to a wavy device
+  string calculation_method = 6;
+}
+
+// Correlation between different sensor types
+message Correlation {
+  string sensor_type_1 = 1;
+  string sensor_type_2 = 2;
+  double correlation_coefficient = 3;
+  double p_value = 4;
+  string interpretation = 5;
+}
+
+// Data quality assessment
+message QualityAssessment {
+  int32 total_readings = 1;
+  int32 valid_readings = 2;
+  int32 invalid_readings = 3;
+  double completeness_score = 4; // 0-1
+  repeated string quality_issues = 5;
+}
+
+// Anomaly detection response
+message AnomalyResponse {
+  repeated Anomaly anomalies = 1;
+  AnomalyStatistics statistics = 2;
+  string status = 3;
+  string message = 4;
+}
+
+// Individual anomaly detection
+message Anomaly {
+  string wavy_id = 1;
+  string data_type = 2;
+  double value = 3;
+  double expected_value = 4;
+  double deviation_score = 5;
+  int64 timestamp = 6;
+  string severity = 7; // "low", "medium", "high", "critical"
+  string description = 8;
+}
+
+// Anomaly detection statistics
+message AnomalyStatistics {
+  int32 total_anomalies = 1;
+  int32 critical_anomalies = 2;
+  double anomaly_rate = 3;
+  repeated string affected_sensors = 4;
+}
+
+// Report generation request
+message ReportRequest {
+  repeated OceanSensorData sensor_data = 1;
+  string report_type = 2; // "summary", "detailed", "comparative"
+  int64 start_time = 3;
+  int64 end_time = 4;
+  repeated string wavy_ids = 5; // Filter by specific devices
+  repeated string data_types = 6; // Filter by data types
+}
+
+// Report response
+message ReportResponse {
+  string report_id = 1;
+  ReportSummary summary = 2;
+  repeated DeviceReport device_reports = 3;
+  repeated TimeSeriesData time_series = 4;
+  string status = 5;
+  string message = 6;
+  int64 generated_at = 7;
+}
+
+// Report summary
+message ReportSummary {
+  int64 time_period_start = 1;
+  int64 time_period_end = 2;
+  int32 total_devices = 3;
+  int32 total_readings = 4;
+  repeated OverallMetric overall_metrics = 5;
+}
+
+// Overall metric across all devices
+message OverallMetric {
+  string data_type = 1;
+  double average = 2;
+  double minimum = 3;
+  double maximum = 4;
+  double standard_deviation = 5;
+  string unit = 6;
+}
+
+// Individual device report
+message DeviceReport {
+  string wavy_id = 1;
+  string aggregator_id = 2;
+  int32 total_readings = 3;
+  repeated DeviceMetric metrics = 4;
+  string health_status = 5;
+  double uptime_percentage = 6;
+}
+
+// Metric for a specific device
+message DeviceMetric {
+  string data_type = 1;
+  double average = 2;
+  double minimum = 3;
+  double maximum = 4;
+  double latest_value = 5;
+  int64 latest_timestamp = 6;
+  string unit = 7;
+}
+
+// Time series data for trending
+message TimeSeriesData {
+  string data_type = 1;
+  string wavy_id = 2;
+  repeated TimePoint time_points = 3;
+}
+
+// Individual time point
+message TimePoint {
+  int64 timestamp = 1;
+  double value = 2;
+}
+
+// Trend analysis request
+message TrendAnalysisRequest {
+  repeated OceanSensorData sensor_data = 1;
+  string trend_type = 2; // "linear", "seasonal", "polynomial"
+  int32 forecast_days = 3; // Number of days to forecast
+  repeated string data_types = 4;
+}
+
+// Trend analysis response
+message TrendResponse {
+  repeated TrendAnalysis trends = 1;
+  repeated Forecast forecasts = 2;
+  string status = 3;
+  string message = 4;
+}
+
+// Individual trend analysis
+message TrendAnalysis {
+  string data_type = 1;
+  string wavy_id = 2;
+  string trend_direction = 3; // "increasing", "decreasing", "stable"
+  double slope = 4;
+  double r_squared = 5;
+  string significance = 6;
+}
+
+// Forecast data
+message Forecast {
+  string data_type = 1;
+  string wavy_id = 2;
+  repeated ForecastPoint forecast_points = 3;
+  double confidence_interval = 4;
+}
+
+// Individual forecast point
+message ForecastPoint {
+  int64 timestamp = 1;
+  double predicted_value = 2;
+  double lower_bound = 3;
+  double upper_bound = 4;
+}
+
+// Real-time metrics request
+message MetricsRequest {
+  repeated string wavy_ids = 1;
+  repeated string data_types = 2;
+  int32 time_window_minutes = 3; // Recent data window
+}
+
+// Real-time metrics response
+message MetricsResponse {
+  repeated RealTimeMetric metrics = 1;
+  SystemHealth system_health = 2;
+  string status = 3;
+  string message = 4;
+  int64 timestamp = 5;
+}
+
+// Real-time metric
+message RealTimeMetric {
+  string wavy_id = 1;
+  string data_type = 2;
+  double current_value = 3;
+  double average_last_hour = 4;
+  double change_rate = 5; // Rate of change per hour
+  string status = 6; // "normal", "warning", "critical"
+}
+
+// System health overview
+message SystemHealth {
+  int32 active_devices = 1;
+  int32 total_devices = 2;
+  double data_ingestion_rate = 3; // readings per minute
+  double system_uptime = 4;
+  repeated string alerts = 5;
+}

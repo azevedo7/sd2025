@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package ocean_analysis;
+
+// Simple service for basic statistical analysis of sensor data
+service SensorDataAnalysisService {
+  rpc AnalyzeSensorData (SensorDataRequest) returns (SensorDataAnalysisResponse);
+}
+
+// Request message containing sensor data and data type
+message SensorDataRequest {
+  string data_type = 1;           // "temperature", "humidity", "waterLevel", "windSpeed"
+  repeated double values = 2;     // The aggregated sensor values
+}
+
+// Response with basic statistical analysis
+message SensorDataAnalysisResponse {
+  double average = 1;
+  double min = 2;
+  double max = 3;
+  double std_dev = 4;
+  int32 count = 5;
+  double median = 6;
+}

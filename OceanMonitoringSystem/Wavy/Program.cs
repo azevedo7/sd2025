@@ -166,31 +166,52 @@ class Wavy
                     if (currentUnsentData.Length > 0)
                     {
                         Console.WriteLine($"Sending {currentUnsentData.Length} data points to aggregator...");
-                        // Serialize and send data according to protocol
-                        await SendAsync(stream, Protocol.CreateMessage(Protocol.DATA_SEND, JsonSerializer.Serialize(currentUnsentData)));
-
-                        try
+                        // Send each data point individually with the new protocol format
+                        foreach (var dataPoint in currentUnsentData)
                         {
-                            // Wait for acknowledgment from aggregator
-                            string dataReply = await ReadAsync(stream);
-                            var (messageType, _) = Protocol.ParseMessage(dataReply);
-
-                            // Clear data only if properly acknowledged
-                            if (messageType == Protocol.DATA_ACK)
+                            string dataFormat = random.Next(100) < 20 ? "CSV" : "JSON"; // 20% chance of CSV
+                            string dataMessage;
+                            
+                            if (dataFormat == "CSV")
                             {
-                                Console.WriteLine("Data acknowledged by aggregator.");
-                                ClearUnsentData();
+                                // Format as CSV with header: type,value
+                                string csvPayload = $"type,value\n{dataPoint.dataType},{dataPoint.value}";
+                                dataMessage = $"{Protocol.DATA_SEND}|{dataFormat}|{csvPayload}|{Protocol.END}";
+                                Console.WriteLine($"Sending CSV data: {csvPayload}");
                             }
                             else
                             {
-                                Console.WriteLine("Unexpected response. Keeping data in unsentData.");
+                                var dataPayload = new[] { new { type = dataPoint.dataType, value = double.Parse(dataPoint.value) } };
+                                string jsonPayload = JsonSerializer.Serialize(dataPayload);
+                                dataMessage = $"{Protocol.DATA_SEND}|{dataFormat}|{jsonPayload}|{Protocol.END}";
+                            }
+
+                            await SendAsync(stream, dataMessage);
+
+                            try
+                            {
+                                // Wait for acknowledgment from aggregator
+                                string dataReply = await ReadAsync(stream);
+                                var (messageType, _) = Protocol.ParseMessage(dataReply);
+
+                                // Clear data only if properly acknowledged
+                                if (messageType == Protocol.DATA_ACK)
+                                {
+                                    Console.WriteLine("Data acknowledged by aggregator.");
+                                }
+                                else
+                                {
+                                    Console.WriteLine("Unexpected response. Keeping data in unsentData.");
+                                    break;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Error receiving acknowledgment: {ex.Message}");
+                                break;
                             }
                         }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Error receiving acknowledgment: {ex.Message}");
-                            break;
-                        }
+                        ClearUnsentData();
                     }
 
                     await Task.Delay(1000);

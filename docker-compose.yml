@@ -1,0 +1,113 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: ./OceanMonitoringSystem
+      dockerfile: Server/Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - server_data:/app/data
+    networks:
+      - ocean_network
+
+  aggregator1:
+    build:
+      context: ./OceanMonitoringSystem
+      dockerfile: Aggregator/Dockerfile
+    environment:
+      - AGGREGATOR_ID=agg1
+      - AGGREGATOR_PORT=9000
+      - SERVER_IP=server
+      - SERVER_PORT=8080
+    ports:
+      - "9000:9000"
+    volumes:
+      - aggregator1_data:/app/data
+    networks:
+      - ocean_network
+    depends_on:
+      - server
+
+  aggregator2:
+    build:
+      context: ./OceanMonitoringSystem
+      dockerfile: Aggregator/Dockerfile
+    environment:
+      - AGGREGATOR_ID=agg2
+      - AGGREGATOR_PORT=9001
+      - SERVER_IP=server
+      - SERVER_PORT=8080
+    ports:
+      - "9001:9001"
+    volumes:
+      - aggregator2_data:/app/data
+    networks:
+      - ocean_network
+    depends_on:
+      - server
+
+  wavy1:
+    build:
+      context: ./OceanMonitoringSystem
+      dockerfile: Wavy/Dockerfile
+    environment:
+      - WAVY_ID=wavy1
+      - AGGREGATOR_IP=aggregator1
+      - AGGREGATOR_PORT=9000
+    networks:
+      - ocean_network
+    depends_on:
+      - aggregator1
+
+  wavy2:
+    build:
+      context: ./OceanMonitoringSystem
+      dockerfile: Wavy/Dockerfile
+    environment:
+      - WAVY_ID=wavy2
+      - AGGREGATOR_IP=aggregator1
+      - AGGREGATOR_PORT=9000
+    networks:
+      - ocean_network
+    depends_on:
+      - aggregator1
+
+  wavy3:
+    build:
+      context: ./OceanMonitoringSystem
+      dockerfile: Wavy/Dockerfile
+    environment:
+      - WAVY_ID=wavy3
+      - AGGREGATOR_IP=aggregator2
+      - AGGREGATOR_PORT=9001
+    networks:
+      - ocean_network
+    depends_on:
+      - aggregator2
+
+  web_control:
+    build:
+      context: ./web_control
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - web_control_data:/app/data
+    networks:
+      - ocean_network
+    depends_on:
+      - server
+      - aggregator1
+      - aggregator2
+
+networks:
+  ocean_network:
+    driver: bridge
+
+volumes:
+  server_data:
+  aggregator1_data:
+  aggregator2_data:
+  web_control_data: 
