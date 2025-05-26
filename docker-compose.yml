@@ -1,6 +1,25 @@
 version: '3.8'
 
 services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: oceanguest
+      RABBITMQ_DEFAULT_PASS: oceanpass
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - ocean_network
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 30s
+      retries: 3
+
   server:
     build:
       context: ./OceanMonitoringSystem
@@ -21,6 +40,10 @@ services:
       - AGGREGATOR_PORT=9000
       - SERVER_IP=server
       - SERVER_PORT=8080
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=oceanguest
+      - RABBITMQ_PASSWORD=oceanpass
     ports:
       - "9000:9000"
     volumes:
@@ -28,7 +51,10 @@ services:
     networks:
       - ocean_network
     depends_on:
-      - server
+      rabbitmq:
+        condition: service_healthy
+      server:
+        condition: service_started
 
   aggregator2:
     build:
@@ -39,6 +65,10 @@ services:
       - AGGREGATOR_PORT=9001
       - SERVER_IP=server
       - SERVER_PORT=8080
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=oceanguest
+      - RABBITMQ_PASSWORD=oceanpass
     ports:
       - "9001:9001"
     volumes:
@@ -46,7 +76,10 @@ services:
     networks:
       - ocean_network
     depends_on:
-      - server
+      rabbitmq:
+        condition: service_healthy
+      server:
+        condition: service_started
 
   wavy1:
     build:
@@ -54,12 +87,18 @@ services:
       dockerfile: Wavy/Dockerfile
     environment:
       - WAVY_ID=wavy1
-      - AGGREGATOR_IP=aggregator1
-      - AGGREGATOR_PORT=9000
+      - AGGREGATOR_QUEUE=agg1_queue
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=oceanguest
+      - RABBITMQ_PASSWORD=oceanpass
     networks:
       - ocean_network
     depends_on:
-      - aggregator1
+      rabbitmq:
+        condition: service_healthy
+      aggregator1:
+        condition: service_started
 
   wavy2:
     build:
@@ -67,12 +106,18 @@ services:
       dockerfile: Wavy/Dockerfile
     environment:
       - WAVY_ID=wavy2
-      - AGGREGATOR_IP=aggregator1
-      - AGGREGATOR_PORT=9000
+      - AGGREGATOR_QUEUE=agg1_queue
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=oceanguest
+      - RABBITMQ_PASSWORD=oceanpass
     networks:
       - ocean_network
     depends_on:
-      - aggregator1
+      rabbitmq:
+        condition: service_healthy
+      aggregator1:
+        condition: service_started
 
   wavy3:
     build:
@@ -80,12 +125,18 @@ services:
       dockerfile: Wavy/Dockerfile
     environment:
       - WAVY_ID=wavy3
-      - AGGREGATOR_IP=aggregator2
-      - AGGREGATOR_PORT=9001
+      - AGGREGATOR_QUEUE=agg2_queue
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=oceanguest
+      - RABBITMQ_PASSWORD=oceanpass
     networks:
       - ocean_network
     depends_on:
-      - aggregator2
+      rabbitmq:
+        condition: service_healthy
+      aggregator2:
+        condition: service_started
 
   web_control:
     build:
@@ -107,6 +158,7 @@ networks:
     driver: bridge
 
 volumes:
+  rabbitmq_data:
   server_data:
   aggregator1_data:
   aggregator2_data:

@@ -1,15 +1,15 @@
 ﻿using System;
-using System.Net.Sockets;
-using System.Text;
-using OceanMonitoringSystem.Common;
+using System.Linq;
 using System.Text.Json;
+using System.Threading.Tasks;
 using Models;
+using OceanMonitoringSystem.Common.Services;
 
 /**
  * @class Wavy
  * @description Simulates an ocean monitoring sensor device that collects environmental data
- * and sends it to an aggregator server. This represents the data collection tier of the
- * distributed IoT monitoring system architecture.
+ * and sends it to aggregators via RabbitMQ messaging. This represents the data collection tier 
+ * of the distributed IoT monitoring system architecture.
  */
 class Wavy
 {
@@ -23,8 +23,10 @@ class Wavy
     private static readonly object unsentDataLock = new object();
     // Flag to indicate if the device is in maintenance mode (data generation paused)
     private static bool manutencao = false;
-    // Flag to track if maintenance mode has been communicated to the aggregator
+    // Flag to track if maintenance notification has been sent
     private static bool manutencaoSent = false;
+    // RabbitMQ service instance  
+    private static RabbitMQService? rabbitmqService;
 
     /**
      * @method ClearUnsentData
@@ -67,30 +69,41 @@ class Wavy
     /**
      * @method Main
      * @description Entry point for the Wavy sensor application. Sets up configuration, 
-     * initializes data generation, and establishes connection with the aggregator.
+     * initializes data generation, and establishes RabbitMQ connection with the aggregator.
      * @param args Command-line arguments (not used)
      */
     public static async Task Main(string[] args)
     {
-        // Default configuration values
-        string aggregatorIp = "127.0.0.1";
-        int aggregatorPort = 9000;
-        string wavyId = "Wavy1";
+        // Default configuration values from environment variables or defaults
+        string rabbitmqHost = Environment.GetEnvironmentVariable("RABBITMQ_HOST") ?? "localhost";
+        int rabbitmqPort = int.Parse(Environment.GetEnvironmentVariable("RABBITMQ_PORT") ?? "5672");
+        string rabbitmqUser = Environment.GetEnvironmentVariable("RABBITMQ_DEFAULT_USER") ?? "oceanguest";
+        string rabbitmqPassword = Environment.GetEnvironmentVariable("RABBITMQ_DEFAULT_PASS") ?? "oceanpass";
+        string aggregatorQueue = Environment.GetEnvironmentVariable("AGGREGATOR_QUEUE") ?? "agg1_queue";
+        string wavyId = Environment.GetEnvironmentVariable("WAVY_ID") ?? "Wavy1";
 
         // Interactive configuration setup
-        Console.WriteLine($"Using default settings: IP={aggregatorIp}, Port={aggregatorPort}, ID={wavyId}");
+        Console.WriteLine($"Default settings:");
+        Console.WriteLine($"  RabbitMQ Host: {rabbitmqHost}:{rabbitmqPort}");
+        Console.WriteLine($"  Target Queue: {aggregatorQueue}");
+        Console.WriteLine($"  Wavy ID: {wavyId}");
         Console.WriteLine("Press Enter to accept or input new values.");
 
         // Allow user to customize connection parameters
-        Console.Write("Enter aggregator IP (or press Enter for default): ");
+        Console.Write("Enter RabbitMQ host (or press Enter for default): ");
         string input = Console.ReadLine() ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(input))
-            aggregatorIp = input;
+            rabbitmqHost = input;
 
-        Console.Write("Enter aggregator port (or press Enter for default): ");
+        Console.Write("Enter RabbitMQ port (or press Enter for default): ");
         input = Console.ReadLine() ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(input) && int.TryParse(input, out int port))
-            aggregatorPort = port;
+            rabbitmqPort = port;
+
+        Console.Write("Enter target aggregator queue (or press Enter for default): ");
+        input = Console.ReadLine() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(input))
+            aggregatorQueue = input;
 
         Console.Write("Enter Wavy ID (or press Enter for default): ");
         input = Console.ReadLine() ?? string.Empty;
@@ -103,50 +116,55 @@ class Wavy
         if (!string.IsNullOrWhiteSpace(input) && int.TryParse(input, out int interval))
             dataGenerationInterval = interval;
 
-        // Start background tasks for data generation and command handling
-        _ = Task.Run(() => GenerateDataPeriodically(dataGenerationInterval * 1000));
-        _ = Task.Run(() => HandleConsoleCommands(wavyId));
-
-        // Main connection loop - keeps trying to connect to the aggregator
-        while (isRunning)
+        // Initialize RabbitMQ service
+        var config = new RabbitMQConfig
         {
-            try
+            HostName = rabbitmqHost,
+            Port = rabbitmqPort,
+            UserName = rabbitmqUser,
+            Password = rabbitmqPassword
+        };
+
+        rabbitmqService = new RabbitMQService(config);
+
+        try
+        {
+            // Initialize RabbitMQ connection (connection is established in constructor)
+            Console.WriteLine("Connected to RabbitMQ successfully.");
+
+            // Declare the target queue
+            rabbitmqService.DeclareQueue(aggregatorQueue, aggregatorQueue);
+            Console.WriteLine($"Queue '{aggregatorQueue}' declared successfully.");
+
+            // Start background tasks for data generation and command handling
+            _ = Task.Run(() => GenerateDataPeriodically(dataGenerationInterval * 1000));
+            _ = Task.Run(() => HandleConsoleCommands(wavyId));
+
+            // Main message sending loop
+            while (isRunning)
             {
-                // Establish TCP connection to the aggregator
-                using TcpClient client = new TcpClient();
-                Console.WriteLine($"Connecting to aggregator at {aggregatorIp}:{aggregatorPort}...");
-                await client.ConnectAsync(aggregatorIp, aggregatorPort);
-                using NetworkStream stream = client.GetStream();
-
-                Console.WriteLine($"Connected to aggregator at {aggregatorIp}:{aggregatorPort}");
-
-                // Send connection request with Wavy ID for identification
-                string connReq = Protocol.CreateMessage(Protocol.CONN_REQ, wavyId);
-                await SendAsync(stream, connReq);
-
-                // Wait for connection acknowledgment from aggregator
-                string response = await ReadAsync(stream);
-                var (connAckMessage, _) = Protocol.ParseMessage(response);
-
-                // Verify correct response type
-                if (connAckMessage != Protocol.CONN_ACK)
-                {
-                    Console.WriteLine("Unexpected response. Retrying connection...");
-                    await Task.Delay(3000);
-                    continue;
-                }
-                Console.WriteLine("Connection acknowledged by aggregator.");
-
-                // Main data transmission loop
-                while (isRunning)
+                try
                 {
                     // Handle maintenance mode
-                    while(manutencao)
+                    while (manutencao)
                     {
                         // Send maintenance notification once when entering maintenance
-                        if(!manutencaoSent)
+                        if (!manutencaoSent)
                         {
-                            await SendAsync(stream, Protocol.CreateMessage(Protocol.MAINTENANCE_STATE_UP, wavyId));
+                            var maintenanceMessage = new RabbitMQMessage
+                            {
+                                MessageId = Guid.NewGuid().ToString(),
+                                WavyId = wavyId,
+                                MessageType = "MAINTENANCE_UP",
+                                SensorData = Array.Empty<DataWavy>(),
+                                DataFormat = "JSON",
+                                Priority = 1,
+                                TargetQueue = aggregatorQueue,
+                                Timestamp = DateTime.UtcNow
+                            };
+
+                            rabbitmqService.PublishMessage(maintenanceMessage, aggregatorQueue);
+                            Console.WriteLine("Maintenance mode notification sent.");
                             manutencaoSent = true;
                         }
 
@@ -155,9 +173,22 @@ class Wavy
                     }
 
                     // Send notification when exiting maintenance mode
-                    if(!manutencao && manutencaoSent)
+                    if (!manutencao && manutencaoSent)
                     {
-                        await SendAsync(stream, Protocol.CreateMessage(Protocol.MAINTENANCE_STATE_DOWN, wavyId));
+                        var maintenanceDownMessage = new RabbitMQMessage
+                        {
+                            MessageId = Guid.NewGuid().ToString(),
+                            WavyId = wavyId,
+                            MessageType = "MAINTENANCE_DOWN",
+                            SensorData = Array.Empty<DataWavy>(),
+                            DataFormat = "JSON",
+                            Priority = 1,
+                            TargetQueue = aggregatorQueue,
+                            Timestamp = DateTime.UtcNow
+                        };
+
+                        rabbitmqService.PublishMessage(maintenanceDownMessage, aggregatorQueue);
+                        Console.WriteLine("Maintenance mode ended notification sent.");
                         manutencaoSent = false;
                     }
 
@@ -165,71 +196,54 @@ class Wavy
                     DataWavy[] currentUnsentData = GetUnsentData();
                     if (currentUnsentData.Length > 0)
                     {
-                        Console.WriteLine($"Sending {currentUnsentData.Length} data points to aggregator...");
-                        // Send each data point individually with the new protocol format
-                        foreach (var dataPoint in currentUnsentData)
+                        Console.WriteLine($"Sending {currentUnsentData.Length} data points via RabbitMQ...");
+
+                        // Determine data format (20% chance of CSV, 80% JSON)
+                        string dataFormat = random.Next(100) < 20 ? "CSV" : "JSON";
+                        
+                        // Create RabbitMQ message
+                        var message = new RabbitMQMessage
                         {
-                            string dataFormat = random.Next(100) < 20 ? "CSV" : "JSON"; // 20% chance of CSV
-                            string dataMessage;
-                            
-                            if (dataFormat == "CSV")
-                            {
-                                // Format as CSV with header: type,value
-                                string csvPayload = $"type,value\n{dataPoint.dataType},{dataPoint.value}";
-                                dataMessage = $"{Protocol.DATA_SEND}|{dataFormat}|{csvPayload}|{Protocol.END}";
-                                Console.WriteLine($"Sending CSV data: {csvPayload}");
-                            }
-                            else
-                            {
-                                var dataPayload = new[] { new { type = dataPoint.dataType, value = double.Parse(dataPoint.value) } };
-                                string jsonPayload = JsonSerializer.Serialize(dataPayload);
-                                dataMessage = $"{Protocol.DATA_SEND}|{dataFormat}|{jsonPayload}|{Protocol.END}";
-                            }
+                            MessageId = Guid.NewGuid().ToString(),
+                            WavyId = wavyId,
+                            MessageType = "SENSOR_DATA",
+                            SensorData = currentUnsentData,
+                            DataFormat = dataFormat,
+                            Priority = 5,
+                            TargetQueue = aggregatorQueue,
+                            Timestamp = DateTime.UtcNow
+                        };
 
-                            await SendAsync(stream, dataMessage);
-
-                            try
-                            {
-                                // Wait for acknowledgment from aggregator
-                                string dataReply = await ReadAsync(stream);
-                                var (messageType, _) = Protocol.ParseMessage(dataReply);
-
-                                // Clear data only if properly acknowledged
-                                if (messageType == Protocol.DATA_ACK)
-                                {
-                                    Console.WriteLine("Data acknowledged by aggregator.");
-                                }
-                                else
-                                {
-                                    Console.WriteLine("Unexpected response. Keeping data in unsentData.");
-                                    break;
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine($"Error receiving acknowledgment: {ex.Message}");
-                                break;
-                            }
-                        }
+                        // Publish message to RabbitMQ
+                        rabbitmqService.PublishMessage(message, aggregatorQueue);
+                        
+                        Console.WriteLine($"Data sent successfully via RabbitMQ (Format: {dataFormat}, MessageId: {message.MessageId})");
+                        
+                        // Clear sent data
                         ClearUnsentData();
                     }
 
                     await Task.Delay(1000);
                 }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Connection error: {ex.Message}");
-            }
-            finally
-            {
-                // Reconnection policy with exponential backoff could be implemented here
-                Console.WriteLine("Reconnecting in 3 seconds...");
-                await Task.Delay(3000);
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error sending data via RabbitMQ: {ex.Message}");
+                    // In case of error, keep data in unsent queue for retry
+                    await Task.Delay(3000);
+                }
             }
         }
-
-        Console.WriteLine("Wavy shutting down.");
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to connect to RabbitMQ: {ex.Message}");
+            Console.WriteLine("Please ensure RabbitMQ service is running and accessible.");
+        }
+        finally
+        {
+            // Clean up RabbitMQ connection
+            rabbitmqService?.Dispose();
+            Console.WriteLine("Wavy shutting down.");
+        }
     }
 
     /**
@@ -314,31 +328,6 @@ class Wavy
 
             await Task.Delay(100);
         }
-    }
-
-    /**
-     * @method SendAsync
-     * @description Helper method to send messages over the network stream
-     * @param stream The NetworkStream to send data through
-     * @param message The string message to send
-     */
-    private static async Task SendAsync(NetworkStream stream, string message)
-    {
-        byte[] bytes = Encoding.ASCII.GetBytes(message);
-        await stream.WriteAsync(bytes, 0, bytes.Length);
-    }
-
-    /**
-     * @method ReadAsync
-     * @description Helper method to read messages from the network stream
-     * @param stream The NetworkStream to read data from
-     * @return String containing the received message
-     */
-    private static async Task<string> ReadAsync(NetworkStream stream)
-    {
-        byte[] buffer = new byte[1024];
-        int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-        return Encoding.ASCII.GetString(buffer, 0, bytesRead);
     }
 
     // Sensor data simulation methods

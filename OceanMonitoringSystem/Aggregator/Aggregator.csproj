@@ -12,7 +12,6 @@
   </ItemGroup>
 	
 	
-
   <ItemGroup>
     <PackageReference Include="Google.Protobuf" Version="3.31.0" />
     <PackageReference Include="Grpc.Net.Client" Version="2.71.0" />
@@ -20,6 +19,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="RabbitMQ.Client" Version="6.8.1" />
 	  <Protobuf Include="Protos/dataParser.proto" GrpcServices="Client" />
   </ItemGroup>
 

@@ -9,6 +9,7 @@ using System.Text.Json;
 using Models;
 using Grpc.Net.Client;
 using GrpcDataParser;
+using OceanMonitoringSystem.Common.Services;
 
 /**
  * @class Aggregator
@@ -147,31 +148,38 @@ class Aggregator
     }
     
     // Connection objects for the central server
-    private static NetworkStream serverStream;
-    private static TcpClient serverClient;
+    private static NetworkStream? serverStream;
+    private static TcpClient? serverClient;
     private static string aggregatorId = string.Empty;
+    // RabbitMQ service instance
+    private static RabbitMQService? rabbitmqService;
 
     /**
      * @method Main
-     * @description Entry point for the Aggregator application. Sets up connections to both 
-     * Wavy sensors and the central server.
+     * @description Entry point for the Aggregator application. Sets up RabbitMQ message consumption 
+     * from Wavy sensors and forwarding to the central server.
      */
     public static async Task Main()
     {
         // Interactive configuration
         Console.Write("Enter Aggregator ID: ");
-        aggregatorId = Console.ReadLine();
+        aggregatorId = Console.ReadLine() ?? "Agg1";
 
-        Console.Write("Enter Aggregator Port: ");
-        if (!int.TryParse(Console.ReadLine(), out int aggregatorPort))
-        {
-            Console.WriteLine("Invalid port. Exiting...");
-            return;
-        }
+        // RabbitMQ configuration from environment variables or defaults
+        string rabbitmqHost = Environment.GetEnvironmentVariable("RABBITMQ_HOST") ?? "localhost";
+        int rabbitmqPort = int.Parse(Environment.GetEnvironmentVariable("RABBITMQ_PORT") ?? "5672");
+        string rabbitmqUser = Environment.GetEnvironmentVariable("RABBITMQ_DEFAULT_USER") ?? "oceanguest";
+        string rabbitmqPassword = Environment.GetEnvironmentVariable("RABBITMQ_DEFAULT_PASS") ?? "oceanpass";
+        string queueName = Environment.GetEnvironmentVariable("AGGREGATOR_QUEUE") ?? $"{aggregatorId.ToLower()}_queue";
 
         // Default server connection settings
         string serverIp = "127.0.0.1";
         int serverPort = 8080;
+
+        Console.WriteLine($"Aggregator {aggregatorId} Configuration:");
+        Console.WriteLine($"  RabbitMQ Host: {rabbitmqHost}:{rabbitmqPort}");
+        Console.WriteLine($"  Listening Queue: {queueName}");
+        Console.WriteLine($"  Server: {serverIp}:{serverPort}");
 
         // Data limit settings to prevent memory issues
         int maxBytes = 2048;
@@ -218,20 +226,102 @@ class Aggregator
             return;
         }
 
-        // Start background task for sending data to server
-        _ = Task.Run(() => PeriodicDataSendAsync(sendInterval));
-
-        // Start listening for incoming Wavy connections
-        TcpListener wavyListener = new TcpListener(IPAddress.Parse("127.0.0.1"), aggregatorPort);
-        wavyListener.Start();
-        Console.WriteLine($"Aggregator {aggregatorId} listening for wavys on port {aggregatorPort}...");
-
-        // Accept and handle incoming Wavy connections
-        while (true)
+        // Initialize RabbitMQ service
+        var config = new RabbitMQConfig
         {
-            TcpClient wavyClient = await wavyListener.AcceptTcpClientAsync();
-            Console.WriteLine("Wavy connected.");
-            _ = Task.Run(() => HandleWavyAsync(wavyClient));
+            HostName = rabbitmqHost,
+            Port = rabbitmqPort,
+            UserName = rabbitmqUser,
+            Password = rabbitmqPassword
+        };
+
+        try
+        {
+            rabbitmqService = new RabbitMQService(config);
+            Console.WriteLine("Connected to RabbitMQ successfully.");
+
+            // Declare the queue for this aggregator
+            rabbitmqService.DeclareQueue(queueName, queueName);
+            Console.WriteLine($"Queue '{queueName}' declared successfully.");
+
+            // Start background task for sending data to server
+            _ = Task.Run(() => PeriodicDataSendAsync(sendInterval));
+
+            // Start consuming messages from RabbitMQ
+            Console.WriteLine($"Aggregator {aggregatorId} starting to consume messages from queue '{queueName}'...");
+            
+            rabbitmqService.StartConsumer(queueName, (message) => {
+                return HandleRabbitMQMessage(message);
+            });
+
+            Console.WriteLine("Press [Enter] to exit...");
+            Console.ReadLine();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to initialize RabbitMQ: {ex.Message}");
+            Console.WriteLine("Please ensure RabbitMQ service is running and accessible.");
+        }
+        finally
+        {
+            // Clean up resources
+            rabbitmqService?.Dispose();
+            serverClient?.Close();
+            Console.WriteLine("Aggregator shutting down.");
+        }
+    }
+
+    /**
+     * @method HandleRabbitMQMessage
+     * @description Processes incoming RabbitMQ messages from Wavy sensors
+     * @param message The RabbitMQ message containing sensor data
+     * @return Boolean indicating if message was processed successfully
+     */
+    private static bool HandleRabbitMQMessage(RabbitMQMessage message)
+    {
+        try
+        {
+            Console.WriteLine($"Processing message from {message.WavyId}: {message.MessageType}");
+
+            switch (message.MessageType)
+            {
+                case "SENSOR_DATA":
+                    // Process sensor data
+                    foreach (var dataPoint in message.SensorData)
+                    {
+                        var aggregatorData = new AggregatorSensorData
+                        {
+                            AggregatorId = aggregatorId,
+                            WavyId = message.WavyId,
+                            DataType = dataPoint.dataType,
+                            RawValue = dataPoint.value,
+                            Timestamp = message.Timestamp
+                        };
+
+                        SaveWavyDataToFile(aggregatorData);
+                        Console.WriteLine($"Saved {dataPoint.dataType}={dataPoint.value} from {message.WavyId}");
+                    }
+                    break;
+
+                case "MAINTENANCE_UP":
+                    Console.WriteLine($"Wavy {message.WavyId} entered maintenance mode");
+                    break;
+
+                case "MAINTENANCE_DOWN":
+                    Console.WriteLine($"Wavy {message.WavyId} exited maintenance mode");
+                    break;
+
+                default:
+                    Console.WriteLine($"Unknown message type: {message.MessageType}");
+                    break;
+            }
+
+            return true; // Message processed successfully
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error processing message from {message.WavyId}: {ex.Message}");
+            return false; // Message processing failed
         }
     }
 
