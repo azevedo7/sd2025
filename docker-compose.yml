@@ -133,6 +133,15 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  python-analysis:
+    build:
+      context: ./OceanMonitoringSystem
+      dockerfile: PythonAnalysisService/Dockerfile
+    ports:
+      - "50052:50052"
+    networks:
+      - ocean_network
+
 networks:
   ocean_network:
     driver: bridge
