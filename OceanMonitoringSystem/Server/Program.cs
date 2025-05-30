@@ -11,14 +11,19 @@ using Models;
 using OceanMonitoringSystem.Common;
 using Grpc.Net.Client;
 using OceanAnalysis;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
-/**
- * @class Server
- * @description Central repository component that collects, stores, and presents data
- * from all aggregators. Provides persistence using LiteDB and a user interface
- * for data analysis. This is the top tier of the distributed system architecture.
- */
-class Server
+namespace OceanMonitoringSystem.Server
+{
+    /**
+     * @class Server
+     * @description Central repository component that collects, stores, and presents data
+     * from all aggregators. Provides persistence using LiteDB and a user interface
+     * for data analysis. This is the top tier of the distributed system architecture.
+     */
+    class Server
 {
     // Database file path for persistent storage
     private static readonly string DbPath = "oceandata.db";
@@ -27,14 +32,12 @@ class Server
     private static readonly object DbLock = new object();
 
     // Cancellation token to coordinate graceful shutdown of server components
-    private static CancellationTokenSource _cts = new CancellationTokenSource();
-
-    /**
+    private static CancellationTokenSource _cts = new CancellationTokenSource();    /**
      * @method Main
      * @description Entry point for the server application. Initializes the database,
-     * starts the TCP listener for client connections, and runs the user interface.
+     * starts the TCP listener for client connections, web server, and runs the user interface.
      */
-    public static async Task Main()
+    public static async Task Main(string[] args)
     {
         // Create or connect to the database and set up required collections
         InitializeDatabase();
@@ -42,16 +45,43 @@ class Server
         // Start listening for aggregator connections in a separate task
         Task serverTask = StartTcpListenerAsync(_cts.Token);
 
-        // Run the interactive user interface for data querying and management
-        await RunUserInterfaceAsync();
+        // Start web server in a separate task
+        Task webTask = StartWebServerAsync(_cts.Token);        Console.WriteLine("Ocean Monitoring Server started!");
+        Console.WriteLine("Web interface available at: http://localhost:5001");
+        Console.WriteLine("API available at: http://localhost:5001/api/sensordata");
+        Console.WriteLine();
+
+        // Check if running in Docker or non-interactive environment
+        bool isInteractive = Environment.UserInteractive && !Console.IsInputRedirected;
+        
+        if (isInteractive)
+        {
+            // Run the interactive user interface for data querying and management
+            await RunUserInterfaceAsync();
+        }
+        else
+        {
+            Console.WriteLine("Running in non-interactive mode (Docker container)");
+            Console.WriteLine("Server will continue running until terminated...");
+            
+            // Keep the server running until cancellation is requested
+            try
+            {
+                await Task.Delay(-1, _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                Console.WriteLine("Server shutdown requested.");
+            }
+        }
 
         // When user interface exits, initiate graceful shutdown
         _cts.Cancel();
 
         try
         {
-            // Wait for the server to shut down properly
-            await serverTask;
+            // Wait for both servers to shut down properly
+            await Task.WhenAll(serverTask, webTask);
         }
         catch (OperationCanceledException)
         {
@@ -60,6 +90,48 @@ class Server
 
         Console.WriteLine("Exiting...");
         Environment.Exit(0);
+    }
+
+    /**
+     * @method StartWebServerAsync
+     * @description Starts the ASP.NET Core web server for the dashboard and API
+     */    private static async Task StartWebServerAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var builder = WebApplication.CreateBuilder();
+            
+            // Configure URLs for Docker environment
+            builder.Configuration["urls"] = "http://0.0.0.0:5001";
+            
+            // Add services
+            builder.Services.AddControllers();
+            builder.Services.AddCors(options =>
+            {
+                options.AddDefaultPolicy(builder =>
+                {
+                    builder.AllowAnyOrigin()
+                           .AllowAnyMethod()
+                           .AllowAnyHeader();
+                });
+            });
+
+            var app = builder.Build();
+
+            // Configure pipeline
+            app.UseCors();
+            app.UseDefaultFiles();
+            app.UseStaticFiles();
+            app.UseRouting();
+            app.MapControllers();
+
+            // Start the web server
+            await app.RunAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Web server error: {ex.Message}");
+        }
     }
 
     /**
@@ -122,26 +194,155 @@ class Server
                 Console.Clear();
             }
         }
-    }
-
-    /**
+    }    /**
      * @method ViewDataByDataType
      * @description Query and display sensor data filtered by the specified data type
      * @param dataType The type of data to filter by (e.g., "temperature")
      */
     private static void ViewDataByDataType(string? dataType)
     {
-        throw new NotImplementedException();
-    }
+        if (string.IsNullOrWhiteSpace(dataType))
+        {
+            Console.WriteLine("Data type cannot be empty.");
+            return;
+        }
 
-    /**
+        lock (DbLock)
+        {
+            using (var db = new LiteDatabase(DbPath))
+            {
+                // Get the sensor data collection and filter by data type
+                var collection = db.GetCollection<SensorData>("sensorData");
+                var data = collection.Find(x => x.DataType == dataType)
+                                     .OrderByDescending(item => item.ReceivedAt) // Most recent data first
+                                     .ToList();
+
+                if (data.Count == 0)
+                {
+                    Console.WriteLine($"No sensor data found for data type '{dataType}'.");
+                    return;
+                }
+
+                Console.WriteLine($"\nSensor Data for Data Type: {dataType}");
+                Console.WriteLine(new string('=', 50));
+
+                // Display data in a tabular format
+                Console.WriteLine("\n{0,-10} {1,-10} {2,-20} {3,-30} {4,-30}",
+                   "WAVY ID", "AGG ID", "Timestamp", "Value", "Received At");
+                Console.WriteLine(new string('-', 100));
+
+                // Limit display to 20 rows for readability
+                foreach (var item in data.Take(20))
+                {
+                    Console.WriteLine("{0,-10} {1,-10} {2,-20} {3,-30} {4,-30}",
+                        item.WavyId,
+                        item.AggregatorId,
+                        item.Timestamp.ToString("yyyy-MM-dd HH:mm:ss"),
+                        item.RawValue,
+                        item.ReceivedAt.ToString("yyyy-MM-dd HH:mm:ss"));
+                }
+
+                Console.WriteLine($"\nTotal records for '{dataType}': {data.Count}");
+
+                if (data.Count > 20)
+                {
+                    Console.WriteLine($"... and {data.Count - 20} more records");
+                }
+
+                // Export filtered data to CSV file for external analysis
+                string csvFilePath = $"SensorData_{dataType}_Export.csv";
+                using (var writer = new StreamWriter(csvFilePath))
+                {
+                    writer.WriteLine("WavyId,AggregatorId,DataType,Timestamp,RawValue,ReceivedAt");
+
+                    foreach (var item in data)
+                    {
+                        writer.WriteLine($"{item.WavyId},{item.AggregatorId},{item.DataType},{item.Timestamp:yyyy-MM-dd HH:mm:ss},{item.RawValue},{item.ReceivedAt:yyyy-MM-dd HH:mm:ss}");
+                    }
+                }
+
+                Console.WriteLine($"Data exported to {csvFilePath}");
+            }
+        }
+    }    /**
      * @method ViewDataByWavyId
      * @description Query and display sensor data filtered by the specified Wavy ID
      * @param wavyId The ID of the Wavy device to filter by
      */
     private static void ViewDataByWavyId(string? wavyId)
     {
-        throw new NotImplementedException();
+        if (string.IsNullOrWhiteSpace(wavyId))
+        {
+            Console.WriteLine("Wavy ID cannot be empty.");
+            return;
+        }
+
+        lock (DbLock)
+        {
+            using (var db = new LiteDatabase(DbPath))
+            {
+                // Get the sensor data collection and filter by Wavy ID
+                var collection = db.GetCollection<SensorData>("sensorData");
+                var data = collection.Find(x => x.WavyId == wavyId)
+                                     .OrderByDescending(item => item.ReceivedAt) // Most recent data first
+                                     .ToList();
+
+                if (data.Count == 0)
+                {
+                    Console.WriteLine($"No sensor data found for Wavy ID '{wavyId}'.");
+                    return;
+                }
+
+                Console.WriteLine($"\nSensor Data for Wavy Device: {wavyId}");
+                Console.WriteLine(new string('=', 50));
+
+                // Display data in a tabular format
+                Console.WriteLine("\n{0,-10} {1,-15} {2,-20} {3,-30} {4,-30}",
+                   "AGG ID", "Data Type", "Timestamp", "Value", "Received At");
+                Console.WriteLine(new string('-', 105));
+
+                // Group data by type for better visualization
+                var groupedData = data.GroupBy(x => x.DataType).ToList();
+                
+                foreach (var group in groupedData)
+                {
+                    Console.WriteLine($"\n--- {group.Key.ToUpper()} Data ---");
+                    foreach (var item in group.Take(10)) // Limit each data type to 10 records
+                    {
+                        Console.WriteLine("{0,-10} {1,-15} {2,-20} {3,-30} {4,-30}",
+                            item.AggregatorId,
+                            item.DataType,
+                            item.Timestamp.ToString("yyyy-MM-dd HH:mm:ss"),
+                            item.RawValue,
+                            item.ReceivedAt.ToString("yyyy-MM-dd HH:mm:ss"));
+                    }
+                    Console.WriteLine($"    Total {group.Key} records: {group.Count()}");
+                }
+
+                Console.WriteLine($"\nTotal records for Wavy '{wavyId}': {data.Count}");
+
+                // Export filtered data to CSV file for external analysis
+                string csvFilePath = $"SensorData_{wavyId}_Export.csv";
+                using (var writer = new StreamWriter(csvFilePath))
+                {
+                    writer.WriteLine("WavyId,AggregatorId,DataType,Timestamp,RawValue,ReceivedAt");
+
+                    foreach (var item in data)
+                    {
+                        writer.WriteLine($"{item.WavyId},{item.AggregatorId},{item.DataType},{item.Timestamp:yyyy-MM-dd HH:mm:ss},{item.RawValue},{item.ReceivedAt:yyyy-MM-dd HH:mm:ss}");
+                    }
+                }
+
+                Console.WriteLine($"Data exported to {csvFilePath}");
+
+                // Show data type distribution for this Wavy device
+                Console.WriteLine("\nData Type Distribution:");
+                foreach (var group in groupedData.OrderByDescending(g => g.Count()))
+                {
+                    Console.WriteLine($"  • {group.Key}: {group.Count()} records");
+                }
+            }
+        }
     }
 
     /**
@@ -215,18 +416,17 @@ class Server
      * @param cancellationToken Token to signal when the server should shut down
      */    private static async Task StartTcpListenerAsync(CancellationToken cancellationToken)
     {
-        TcpListener? server = null;
-
-        try
+        TcpListener? server = null;        try
         {
-            // Configure server endpoint
-            IPAddress ip = IPAddress.Parse("127.0.0.1");
-            int port = 8080;
+            // Configure server endpoint - use 0.0.0.0 for Docker environment
+            IPAddress ip = IPAddress.Parse("0.0.0.0");
+            int port = int.Parse(Environment.GetEnvironmentVariable("TCP_PORT") ?? "8080");
 
             // Start the listener
             server = new TcpListener(ip, port);
             server.Start();
 
+            Console.WriteLine($"Database initialized.");
             Console.WriteLine($"Server started on {ip}:{port}");
 
             // Main server loop - continues until cancellation is requested
@@ -298,10 +498,9 @@ class Server
         string clientId = "";
 
         try
-        {
-            // Buffer for receiving data from the client
+        {            // Buffer for receiving data from the client
             Byte[] buffer = new Byte[4096]; // Increased buffer size for larger data payloads
-            String data = null;
+            String? data = null;
 
             // Get a stream object for reading and writing
             NetworkStream stream = client.GetStream();
@@ -327,11 +526,10 @@ class Server
 
                     // Handle different message types
                     switch (messageType)
-                    {
-                        case Protocol.CONN_REQ:
+                    {                        case Protocol.CONN_REQ:
                             // Register new aggregator connection
                             clientId = payload;
-                            //RegisterAggregator(clientId);
+                            RegisterAggregator(clientId);
                             response = Protocol.CreateMessage(Protocol.CONN_ACK, "SUCCESS");
                             break;
 
@@ -818,11 +1016,11 @@ class Server
                 var fileInfo = new FileInfo(DbPath);
                 return Math.Round(fileInfo.Length / (1024.0 * 1024.0), 2);
             }
-            return 0;
-        }
+            return 0;        }
         catch
         {
             return 0;
         }
     }
+}
 }

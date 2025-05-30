@@ -20,7 +20,7 @@ services:
 
   server:
     build:
-      context: ./OceanMonitoringSystem
+      context: .
       dockerfile: Server/Dockerfile
     ports:
       - "8080:8080"   # TCP listener port
@@ -32,13 +32,11 @@ services:
 
   aggregator1:
     build:
-      context: ./OceanMonitoringSystem
+      context: .
       dockerfile: Aggregator/Dockerfile
     environment:
-      - AGGREGATOR_ID=humidity_agg
-      - SENSOR_TYPES=humidity,waterLevel
+      - AGGREGATOR_ID=agg1
       - AGGREGATOR_PORT=9000
-      - SERVER_IP=server
       - SERVER_PORT=8080
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
@@ -58,13 +56,11 @@ services:
 
   aggregator2:
     build:
-      context: ./OceanMonitoringSystem
+      context: .
       dockerfile: Aggregator/Dockerfile
     environment:
-      - AGGREGATOR_ID=temperature_agg
-      - SENSOR_TYPES=temperature,windSpeed
+      - AGGREGATOR_ID=agg2
       - AGGREGATOR_PORT=9001
-      - SERVER_IP=server
       - SERVER_PORT=8080
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
@@ -84,11 +80,11 @@ services:
 
   wavy1:
     build:
-      context: ./OceanMonitoringSystem
+      context: .
       dockerfile: Wavy/Dockerfile
     environment:
       - WAVY_ID=wavy1
-      - AGGREGATOR_QUEUE=legacy_queue  # Legacy support
+      - AGGREGATOR_QUEUE=agg1_queue
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=oceanguest
@@ -98,14 +94,16 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+      aggregator1:
+        condition: service_started
 
   wavy2:
     build:
-      context: ./OceanMonitoringSystem
+      context: .
       dockerfile: Wavy/Dockerfile
     environment:
       - WAVY_ID=wavy2
-      - AGGREGATOR_QUEUE=legacy_queue  # Legacy support
+      - AGGREGATOR_QUEUE=agg1_queue
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=oceanguest
@@ -115,14 +113,16 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+      aggregator1:
+        condition: service_started
 
   wavy3:
     build:
-      context: ./OceanMonitoringSystem
+      context: .
       dockerfile: Wavy/Dockerfile
     environment:
       - WAVY_ID=wavy3
-      - AGGREGATOR_QUEUE=legacy_queue  # Legacy support
+      - AGGREGATOR_QUEUE=agg2_queue
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=oceanguest
@@ -132,6 +132,8 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+      aggregator2:
+        condition: service_started
 
 networks:
   ocean_network:
@@ -142,4 +144,3 @@ volumes:
   server_data:
   aggregator1_data:
   aggregator2_data:
-  web_control_data:

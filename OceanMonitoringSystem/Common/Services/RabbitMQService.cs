@@ -50,8 +50,8 @@ namespace OceanMonitoringSystem.Common.Services
                 _connection = factory.CreateConnection();
                 _channel = _connection.CreateModel();
 
-                // Declare the exchange
-                _channel.ExchangeDeclare(exchange: _exchangeName, type: ExchangeType.Direct, durable: true);
+                // Declare the exchange as topic type for pattern-based routing
+                _channel.ExchangeDeclare(exchange: _exchangeName, type: ExchangeType.Topic, durable: true);
 
                 Console.WriteLine($"Connected to RabbitMQ at {_config.HostName}:{_config.Port}");
             }
@@ -175,6 +175,117 @@ namespace OceanMonitoringSystem.Common.Services
         public bool IsConnected()
         {
             return _connection != null && _connection.IsOpen && _channel != null && _channel.IsOpen;
+        }
+
+        /**
+         * @method PublishToTopic
+         * @description Publishes a message to a topic pattern
+         * @param topic Topic pattern for routing (e.g., "sensor.temperature.wavy1")
+         * @param message The RabbitMQ message to publish
+         */
+        public void PublishToTopic(string topic, RabbitMQMessage message)
+        {
+            if (_channel == null) throw new InvalidOperationException("RabbitMQ channel is not initialized");
+
+            try
+            {
+                var messageJson = JsonSerializer.Serialize(message);
+                var body = Encoding.UTF8.GetBytes(messageJson);
+
+                var properties = _channel.CreateBasicProperties();
+                properties.Persistent = true;
+                properties.Priority = message.Priority;
+                properties.MessageId = message.MessageId;
+                properties.Timestamp = new AmqpTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+                _channel.BasicPublish(exchange: _exchangeName, routingKey: topic, basicProperties: properties, body: body);
+
+                Console.WriteLine($"Message published to topic '{topic}': {message.MessageType} from {message.WavyId}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to publish message to topic: {ex.Message}");
+                throw;
+            }
+        }
+
+        /**
+         * @method SubscribeToTopics
+         * @description Subscribes to multiple topic patterns using a single queue
+         * @param queueName Name of the queue to create/use
+         * @param topicPatterns Array of topic patterns to subscribe to (e.g., "sensor.temperature.*")
+         * @param onMessageReceived Callback function to handle received messages
+         */
+        public void SubscribeToTopics(string queueName, string[] topicPatterns, Func<RabbitMQMessage, bool> onMessageReceived)
+        {
+            if (_channel == null) throw new InvalidOperationException("RabbitMQ channel is not initialized");
+
+            // Declare queue
+            _channel.QueueDeclare(queue: queueName, durable: true, exclusive: false, autoDelete: false, arguments: null);
+
+            // Bind queue to each topic pattern
+            foreach (var pattern in topicPatterns)
+            {
+                _channel.QueueBind(queue: queueName, exchange: _exchangeName, routingKey: pattern);
+                Console.WriteLine($"Bound queue '{queueName}' to topic pattern: {pattern}");
+            }
+
+            // Set up consumer
+            var consumer = new EventingBasicConsumer(_channel);
+            consumer.Received += (model, ea) =>
+            {
+                try
+                {
+                    var body = ea.Body.ToArray();
+                    var messageJson = Encoding.UTF8.GetString(body);
+                    var message = JsonSerializer.Deserialize<RabbitMQMessage>(messageJson);
+
+                    if (message != null)
+                    {
+                        Console.WriteLine($"Message received from topic '{ea.RoutingKey}': {message.MessageType} from {message.WavyId}");
+
+                        // Process the message
+                        bool processed = onMessageReceived(message);
+
+                        if (processed)
+                        {
+                            _channel?.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
+                            Console.WriteLine($"Message acknowledged: {message.MessageId}");
+                        }
+                        else
+                        {
+                            _channel?.BasicNack(deliveryTag: ea.DeliveryTag, multiple: false, requeue: true);
+                            Console.WriteLine($"Message rejected and requeued: {message.MessageId}");
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("Failed to deserialize message, rejecting...");
+                        _channel?.BasicNack(deliveryTag: ea.DeliveryTag, multiple: false, requeue: false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error processing message: {ex.Message}");
+                    _channel?.BasicNack(deliveryTag: ea.DeliveryTag, multiple: false, requeue: false);
+                }
+            };
+
+            _channel.BasicConsume(queue: queueName, autoAck: false, consumer: consumer);
+            Console.WriteLine($"Started consuming messages from queue '{queueName}' with {topicPatterns.Length} topic patterns");
+        }
+
+        /**
+         * @method GenerateTopic
+         * @description Generates a topic string following the pattern: sensor.{type}.{wavyId}.{messageType}
+         * @param sensorType Type of sensor (temperature, humidity, etc.)
+         * @param wavyId ID of the Wavy device
+         * @param messageType Type of message (data, maintenance, etc.)
+         * @return Generated topic string
+         */
+        public static string GenerateTopic(string sensorType, string wavyId, string messageType = "data")
+        {
+            return $"sensor.{sensorType.ToLower()}.{wavyId.ToLower()}.{messageType.ToLower()}";
         }
 
         /**

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices.JavaScript;
@@ -87,7 +88,7 @@ class Aggregator
         {
             await Task.Delay(interval);
 
-            AggregatorSensorData[] data = null;
+            AggregatorSensorData[]? data = null;
             bool mutexAcquired = false;
             
             try
@@ -102,7 +103,7 @@ class Aggregator
 
                 data = GetWavyDataFromFile();
 
-                if (data.Length > 0)
+                if (data != null && data.Length > 0)
                 {
                     string aggregatedPayload = JsonSerializer.Serialize(data);
                     
@@ -151,6 +152,8 @@ class Aggregator
     private static NetworkStream? serverStream;
     private static TcpClient? serverClient;
     private static string aggregatorId = string.Empty;
+    private static string serverIp = string.Empty;
+    private static int serverPort = 8080;
     // RabbitMQ service instance
     private static RabbitMQService? rabbitmqService;
 
@@ -161,9 +164,20 @@ class Aggregator
      */
     public static async Task Main()
     {
-        // Interactive configuration
-        Console.Write("Enter Aggregator ID: ");
-        aggregatorId = Console.ReadLine() ?? "Agg1";
+        // Configuration from environment variables or defaults
+        aggregatorId = Environment.GetEnvironmentVariable("AGGREGATOR_ID") ?? "Agg1";
+        string sensorTypes = Environment.GetEnvironmentVariable("SENSOR_TYPES") ?? "temperature,humidity"; // Default to temperature and humidity
+        bool isInteractive = Environment.UserInteractive && !Console.IsInputRedirected;
+        
+        if (isInteractive)
+        {
+            Console.Write("Enter Aggregator ID: ");
+            string? userInput = Console.ReadLine();
+            if (!string.IsNullOrEmpty(userInput))
+            {
+                aggregatorId = userInput;
+            }
+        }
 
         // RabbitMQ configuration from environment variables or defaults
         string rabbitmqHost = Environment.GetEnvironmentVariable("RABBITMQ_HOST") ?? "localhost";
@@ -172,13 +186,14 @@ class Aggregator
         string rabbitmqPassword = Environment.GetEnvironmentVariable("RABBITMQ_DEFAULT_PASS") ?? "oceanpass";
         string queueName = Environment.GetEnvironmentVariable("AGGREGATOR_QUEUE") ?? $"{aggregatorId.ToLower()}_queue";
 
-        // Default server connection settings
-        string serverIp = "127.0.0.1";
-        int serverPort = 8080;
+        // Server connection settings from environment variables
+        serverIp = Environment.GetEnvironmentVariable("SERVER_IP") ?? "127.0.0.1";
+        serverPort = int.Parse(Environment.GetEnvironmentVariable("SERVER_PORT") ?? "8080");
 
         Console.WriteLine($"Aggregator {aggregatorId} Configuration:");
         Console.WriteLine($"  RabbitMQ Host: {rabbitmqHost}:{rabbitmqPort}");
-        Console.WriteLine($"  Listening Queue: {queueName}");
+        Console.WriteLine($"  Sensor Types: {sensorTypes}");
+        Console.WriteLine($"  Legacy Queue: {queueName}");
         Console.WriteLine($"  Server: {serverIp}:{serverPort}");
 
         // Data limit settings to prevent memory issues
@@ -240,22 +255,55 @@ class Aggregator
             rabbitmqService = new RabbitMQService(config);
             Console.WriteLine("Connected to RabbitMQ successfully.");
 
-            // Declare the queue for this aggregator
+            // Declare the legacy queue for backwards compatibility
             rabbitmqService.DeclareQueue(queueName, queueName);
-            Console.WriteLine($"Queue '{queueName}' declared successfully.");
+            Console.WriteLine($"Legacy queue '{queueName}' declared successfully.");
+
+            // Parse sensor types and create topic patterns
+            string[] sensorTypeArray = sensorTypes.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                                 .Select(s => s.Trim().ToLower())
+                                                 .ToArray();
+            
+            // Create topic patterns for this aggregator's sensor types
+            string[] topicPatterns = sensorTypeArray.SelectMany(sensorType => new[]
+            {
+                $"sensor.{sensorType}.*.sensor_data",
+                $"sensor.{sensorType}.*.maintenance_up", 
+                $"sensor.{sensorType}.*.maintenance_down"
+            }).ToArray();
+
+            string topicQueueName = $"{aggregatorId.ToLower()}_topic_queue";
+            
+            Console.WriteLine($"Subscribing to topic patterns: {string.Join(", ", topicPatterns)}");
 
             // Start background task for sending data to server
             _ = Task.Run(() => PeriodicDataSendAsync(sendInterval));
 
-            // Start consuming messages from RabbitMQ
-            Console.WriteLine($"Aggregator {aggregatorId} starting to consume messages from queue '{queueName}'...");
+            // Start consuming messages from topic-based subscriptions
+            Console.WriteLine($"Aggregator {aggregatorId} starting to consume messages from topics...");
             
+            rabbitmqService.SubscribeToTopics(topicQueueName, topicPatterns, (message) => {
+                return HandleRabbitMQMessage(message);
+            });
+
+            // Also continue consuming from legacy queue for backwards compatibility
             rabbitmqService.StartConsumer(queueName, (message) => {
                 return HandleRabbitMQMessage(message);
             });
 
-            Console.WriteLine("Press [Enter] to exit...");
-            Console.ReadLine();
+            if (isInteractive)
+            {
+                Console.WriteLine("Press [Enter] to exit...");
+                Console.ReadLine();
+            }
+            else
+            {
+                Console.WriteLine("Running in non-interactive mode (Docker container)");
+                Console.WriteLine("Aggregator will continue running until terminated...");
+                
+                // Keep the application running indefinitely
+                await Task.Delay(-1);
+            }
         }
         catch (Exception ex)
         {
@@ -343,7 +391,7 @@ class Aggregator
             {
                 // Connect to the main server
                 serverClient = new TcpClient();
-                await serverClient.ConnectAsync(IPAddress.Parse(serverIp), serverPort);
+                await serverClient.ConnectAsync(serverIp, serverPort);
                 serverStream = serverClient.GetStream();
                 Console.WriteLine("Connected to server.");
 
@@ -438,7 +486,9 @@ class Aggregator
 
                                 Console.WriteLine("Data points: " + jsonPayload);
                                 var dataPoints = JsonSerializer.Deserialize<List<SensorDataPayload>>(jsonPayload);
-                                foreach (var dataPoint in dataPoints)
+                                if (dataPoints != null)
+                                {
+                                    foreach (var dataPoint in dataPoints)
                                 {
                                     string dataType = dataPoint.type;
                                     string processedValue = dataPoint.value.ToString();
@@ -453,6 +503,7 @@ class Aggregator
                                     };
 
                                     SaveWavyDataToFile(aggregatorData);
+                                    }
                                 }
                                 await SendMessageToWavy(stream, Protocol.DATA_ACK);
                             }
@@ -502,7 +553,7 @@ class Aggregator
             try
             {
                 // Check server connection status
-                if (serverStream == null || !serverClient.Connected)
+                if (serverStream == null || serverClient == null || !serverClient.Connected)
                 {
                     Console.WriteLine("Server connection lost. Attempting to reconnect...");
                     bool reconnected = await ReconnectToServerAsync();
@@ -518,22 +569,25 @@ class Aggregator
                 string message = Protocol.CreateMessage(Protocol.AGG_DATA_SEND, aggregatedPayload);
                 byte[] msgBytes = Encoding.ASCII.GetBytes(message);
 
-                await serverStream.WriteAsync(msgBytes, 0, msgBytes.Length);
-                Console.WriteLine("Sent to server: " + aggregatedPayload);
-
-                // Wait for acknowledgment from the server
-                byte[] ackBuffer = new byte[1024];
-                int bytesRead = await serverStream.ReadAsync(ackBuffer, 0, ackBuffer.Length);
-                string ackMessage = Encoding.ASCII.GetString(ackBuffer, 0, bytesRead);
-
-                if (ackMessage.Contains("ACK"))
+                if (serverStream != null)
                 {
-                    Console.WriteLine("Acknowledgment received from server. Clearing Data.");
-                    break; // Exit the loop after successful send
-                }
-                else
-                {
-                    Console.WriteLine("Acknowledgment not received. Retrying...");
+                    await serverStream.WriteAsync(msgBytes, 0, msgBytes.Length);
+                    Console.WriteLine("Sent to server: " + aggregatedPayload);
+
+                    // Wait for acknowledgment from the server
+                    byte[] ackBuffer = new byte[1024];
+                    int bytesRead = await serverStream.ReadAsync(ackBuffer, 0, ackBuffer.Length);
+                    string ackMessage = Encoding.ASCII.GetString(ackBuffer, 0, bytesRead);
+
+                    if (ackMessage.Contains("ACK"))
+                    {
+                        Console.WriteLine("Acknowledgment received from server. Clearing Data.");
+                        break; // Exit the loop after successful send
+                    }
+                    else
+                    {
+                        Console.WriteLine("Acknowledgment not received. Retrying...");
+                    }
                 }
             }
             catch (Exception ex)
@@ -624,7 +678,7 @@ class Aggregator
             {
                 serverClient?.Close(); // Close the previous connection if it exists
                 serverClient = new TcpClient();
-                await serverClient.ConnectAsync("127.0.0.1", 8080); // Replace with your server IP and port
+                await serverClient.ConnectAsync(serverIp, serverPort);
                 serverStream = serverClient.GetStream();
                 Console.WriteLine("Reconnected to server.");
 
@@ -660,7 +714,7 @@ class Aggregator
 
     public class SensorDataPayload
     {
-        public string type { get; set; }
+        public string type { get; set; } = string.Empty;
         public double value { get; set; }
     }
 }

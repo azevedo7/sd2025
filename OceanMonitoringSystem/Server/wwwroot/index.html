@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ocean Monitoring System - Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="css/dashboard.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <nav class="col-md-3 col-lg-2 d-md-block bg-dark sidebar">
+                <div class="position-sticky pt-3">
+                    <div class="text-center text-white mb-4">
+                        <h4><i class="fas fa-water text-primary"></i> Ocean Monitor</h4>
+                    </div>
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link text-white active" href="#" onclick="showDashboard()">
+                                <i class="fas fa-chart-line"></i> Dashboard
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" onclick="showSensorData()">
+                                <i class="fas fa-database"></i> All Sensor Data
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" onclick="showWavyDevices()">
+                                <i class="fas fa-microchip"></i> Wavy Devices
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" onclick="showDataTypes()">
+                                <i class="fas fa-filter"></i> Data Types
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white" href="#" onclick="showAggregators()">
+                                <i class="fas fa-server"></i> Aggregators
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <!-- Main content -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2" id="page-title">Ocean Monitoring Dashboard</h1>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="refreshData()">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Dashboard Content -->
+                <div id="dashboard-content">
+                    <!-- Statistics Cards -->
+                    <div class="row mb-4">
+                        <div class="col-md-3">
+                            <div class="card text-white bg-primary">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between">
+                                        <div>
+                                            <h5 class="card-title">Total Records</h5>
+                                            <h3 id="total-records">-</h3>
+                                        </div>
+                                        <div class="align-self-center">
+                                            <i class="fas fa-database fa-2x"></i>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card text-white bg-success">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between">
+                                        <div>
+                                            <h5 class="card-title">Aggregators</h5>
+                                            <h3 id="aggregator-count">-</h3>
+                                        </div>
+                                        <div class="align-self-center">
+                                            <i class="fas fa-server fa-2x"></i>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card text-white bg-info">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between">
+                                        <div>
+                                            <h5 class="card-title">Data Types</h5>
+                                            <h3 id="data-type-count">-</h3>
+                                        </div>
+                                        <div class="align-self-center">
+                                            <i class="fas fa-filter fa-2x"></i>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card text-white bg-warning">
+                                <div class="card-body">
+                                    <div class="d-flex justify-content-between">
+                                        <div>
+                                            <h5 class="card-title">Wavy Devices</h5>
+                                            <h3 id="wavy-device-count">-</h3>
+                                        </div>
+                                        <div class="align-self-center">
+                                            <i class="fas fa-microchip fa-2x"></i>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Charts Section -->
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>Data Type Distribution</h5>
+                                </div>
+                                <div class="card-body">
+                                    <canvas id="dataTypeChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>Wavy Device Activity</h5>
+                                </div>
+                                <div class="card-body">
+                                    <canvas id="wavyDeviceChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Data -->
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5>Recent Sensor Data</h5>
+                            <button class="btn btn-sm btn-outline-primary" onclick="exportData()">
+                                <i class="fas fa-download"></i> Export CSV
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-striped" id="recent-data-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Wavy ID</th>
+                                            <th>Aggregator</th>
+                                            <th>Data Type</th>
+                                            <th>Value</th>
+                                            <th>Timestamp</th>
+                                            <th>Received At</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="recent-data-tbody">
+                                        <tr><td colspan="6" class="text-center">Loading...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dynamic Content Area -->
+                <div id="dynamic-content" style="display: none;">
+                    <!-- Content will be loaded dynamically -->
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal fade" id="filterModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Filter Data</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="filterWavyId" class="form-label">Wavy ID</label>
+                        <input type="text" class="form-control" id="filterWavyId" placeholder="Enter Wavy ID">
+                    </div>
+                    <div class="mb-3">
+                        <label for="filterDataType" class="form-label">Data Type</label>
+                        <select class="form-select" id="filterDataType">
+                            <option value="">All Data Types</option>
+                            <option value="temperature">Temperature</option>
+                            <option value="humidity">Humidity</option>
+                            <option value="windSpeed">Wind Speed</option>
+                            <option value="waterLevel">Water Level</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" onclick="applyFilters()">Apply Filters</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="js/dashboard.js"></script>
+</body>
+</html>

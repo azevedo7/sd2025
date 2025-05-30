@@ -5,18 +5,18 @@ WORKDIR /src
 
 # Copy the solution file and project files
 COPY OceanMonitoringSystem.sln ./
-COPY Aggregator/Aggregator.csproj Aggregator/
+COPY Server/Server.csproj Server/
 COPY Common/Common.csproj Common/
 
 # Restore dependencies
-RUN dotnet restore "Aggregator/Aggregator.csproj"
+RUN dotnet restore "Server/Server.csproj"
 
 # Copy the rest of the application files
-COPY Aggregator/ Aggregator/
+COPY Server/ Server/
 COPY Common/ Common/
 
 # Build the application
-RUN dotnet build "Aggregator/Aggregator.csproj" -c Release -o /app/build
+RUN dotnet build "Server/Server.csproj" -c Release -o /app/build
 
 # Use the runtime base image
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
@@ -27,8 +27,15 @@ WORKDIR /app
 # Copy the built application files
 COPY --from=build /app/build .
 
-# Expose the port used by the application
-EXPOSE 9000
+# Create wwwroot directory for static files
+RUN mkdir -p wwwroot
 
-# Define the command to run the application
-ENTRYPOINT ["dotnet", "Aggregator.dll"]
+# Copy static files if they exist
+COPY --from=build /src/Server/wwwroot ./wwwroot
+
+# Expose the ports used by the server
+EXPOSE 8080
+EXPOSE 5001
+
+# Define the command to run the server
+ENTRYPOINT ["dotnet", "Server.dll"]

@@ -1,0 +1,185 @@
+/* Custom CSS for Ocean Monitoring Dashboard */
+
+.sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 100;
+    padding: 0;
+    box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
+}
+
+.sidebar-sticky {
+    position: relative;
+    top: 0;
+    height: calc(100vh - 48px);
+    padding-top: .5rem;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.nav-link {
+    color: rgba(255, 255, 255, .75);
+    transition: color 0.15s ease-in-out;
+}
+
+.nav-link:hover {
+    color: rgba(255, 255, 255, 1);
+}
+
+.nav-link.active {
+    color: #fff;
+    background-color: rgba(255, 255, 255, .1);
+    border-radius: .25rem;
+}
+
+.nav-link i {
+    margin-right: 0.5rem;
+}
+
+main {
+    margin-left: 0;
+}
+
+@media (min-width: 768px) {
+    main {
+        margin-left: 16.66667%;
+    }
+}
+
+@media (min-width: 992px) {
+    main {
+        margin-left: 16.66667%;
+    }
+}
+
+/* Card animations */
+.card {
+    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Table styles */
+.table th {
+    background-color: #f8f9fa;
+    border-top: none;
+    font-weight: 600;
+}
+
+.table-striped tbody tr:nth-of-type(odd) {
+    background-color: rgba(0, 123, 255, 0.05);
+}
+
+/* Chart containers */
+canvas {
+    max-height: 300px;
+}
+
+/* Loading animation */
+.loading {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: #007bff;
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Status indicators */
+.status-connected {
+    color: #28a745;
+}
+
+.status-disconnected {
+    color: #dc3545;
+}
+
+.status-maintenance {
+    color: #ffc107;
+}
+
+/* Responsive adjustments */
+@media (max-width: 767px) {
+    .sidebar {
+        position: relative;
+        height: auto;
+    }
+    
+    main {
+        margin-left: 0;
+    }
+    
+    .d-md-block {
+        display: block !important;
+    }
+}
+
+/* Custom button styles */
+.btn-outline-secondary:hover {
+    background-color: #6c757d;
+    border-color: #6c757d;
+}
+
+/* Data type badges */
+.badge-temperature { background-color: #ff6b6b; }
+.badge-humidity { background-color: #4ecdc4; }
+.badge-windSpeed { background-color: #45b7d1; }
+.badge-waterLevel { background-color: #96ceb4; }
+
+/* Real-time indicator */
+.realtime-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background-color: #28a745;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7);
+    }
+    
+    70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 10px rgba(40, 167, 69, 0);
+    }
+    
+    100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(40, 167, 69, 0);
+    }
+}
+
+/* Export button */
+.export-button {
+    position: relative;
+    overflow: hidden;
+}
+
+.export-button::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    transition: left 0.5s;
+}
+
+.export-button:hover::after {
+    left: 100%;
+}

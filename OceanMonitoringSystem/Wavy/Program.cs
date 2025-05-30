@@ -163,7 +163,13 @@ class Wavy
                                 Timestamp = DateTime.UtcNow
                             };
 
-                            rabbitmqService.PublishMessage(maintenanceMessage, aggregatorQueue);
+                            // Publish maintenance notification to all sensor type topics
+                            string[] sensorTypes = { "temperature", "humidity", "windSpeed", "waterLevel" };
+                            foreach (string sensorType in sensorTypes)
+                            {
+                                string topic = RabbitMQService.GenerateTopic(sensorType, wavyId, "MAINTENANCE_UP");
+                                rabbitmqService.PublishToTopic(topic, maintenanceMessage);
+                            }
                             Console.WriteLine("Maintenance mode notification sent.");
                             manutencaoSent = true;
                         }
@@ -187,7 +193,13 @@ class Wavy
                             Timestamp = DateTime.UtcNow
                         };
 
-                        rabbitmqService.PublishMessage(maintenanceDownMessage, aggregatorQueue);
+                        // Publish maintenance down notification to all sensor type topics
+                        string[] sensorTypes = { "temperature", "humidity", "windSpeed", "waterLevel" };
+                        foreach (string sensorType in sensorTypes)
+                        {
+                            string topic = RabbitMQService.GenerateTopic(sensorType, wavyId, "MAINTENANCE_DOWN");
+                            rabbitmqService.PublishToTopic(topic, maintenanceDownMessage);
+                        }
                         Console.WriteLine("Maintenance mode ended notification sent.");
                         manutencaoSent = false;
                     }
@@ -201,23 +213,30 @@ class Wavy
                         // Determine data format (20% chance of CSV, 80% JSON)
                         string dataFormat = random.Next(100) < 20 ? "CSV" : "JSON";
                         
-                        // Create RabbitMQ message
-                        var message = new RabbitMQMessage
+                        // Publish each sensor data point to its appropriate topic
+                        foreach (var dataPoint in currentUnsentData)
                         {
-                            MessageId = Guid.NewGuid().ToString(),
-                            WavyId = wavyId,
-                            MessageType = "SENSOR_DATA",
-                            SensorData = currentUnsentData,
-                            DataFormat = dataFormat,
-                            Priority = 5,
-                            TargetQueue = aggregatorQueue,
-                            Timestamp = DateTime.UtcNow
-                        };
+                            var message = new RabbitMQMessage
+                            {
+                                MessageId = Guid.NewGuid().ToString(),
+                                WavyId = wavyId,
+                                MessageType = "SENSOR_DATA",
+                                SensorData = new[] { dataPoint }, // Single data point per message
+                                DataFormat = dataFormat,
+                                Priority = 5,
+                                TargetQueue = aggregatorQueue, // Keep for backwards compatibility
+                                Timestamp = DateTime.UtcNow
+                            };
 
-                        // Publish message to RabbitMQ
-                        rabbitmqService.PublishMessage(message, aggregatorQueue);
+                            // Generate topic based on sensor type
+                            string topic = RabbitMQService.GenerateTopic(dataPoint.dataType, wavyId, "SENSOR_DATA");
+                            
+                            // Publish to topic-based exchange
+                            rabbitmqService.PublishToTopic(topic, message);
+                            Console.WriteLine($"Published {dataPoint.dataType} data to topic: {topic}");
+                        }
                         
-                        Console.WriteLine($"Data sent successfully via RabbitMQ (Format: {dataFormat}, MessageId: {message.MessageId})");
+                        Console.WriteLine($"Data sent successfully via RabbitMQ (Format: {dataFormat}, {currentUnsentData.Length} data points)");
                         
                         // Clear sent data
                         ClearUnsentData();
