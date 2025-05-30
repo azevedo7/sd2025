@@ -837,3 +837,31 @@ function showError(message) {
         }
     }, 5000);
 }
+
+// Utility functions
+function formatNumber(num) {
+    if (num === null || num === undefined) return '0';
+    return new Intl.NumberFormat().format(num);
+}
+
+function formatDateTime(dateString) {
+    if (!dateString) return 'N/A';
+    
+    try {
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return 'Invalid Date';
+        
+        return new Intl.DateTimeFormat('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        }).format(date);
+    } catch (error) {
+        console.error('Error formatting date:', error);
+        return 'Invalid Date';
+    }
+}
