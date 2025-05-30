@@ -137,8 +137,9 @@ namespace OceanMonitoringSystem.Server.Controllers
                     using var db = new LiteDatabase(DbPath);
                     var collection = db.GetCollection<AnalysisResult>("analysisResults");
                     
-                    if (ObjectId.TryParse(id, out ObjectId objectId))
+                    try
                     {
+                        var objectId = new ObjectId(id);
                         var deleted = collection.Delete(objectId);
                         if (deleted)
                         {
@@ -149,7 +150,7 @@ namespace OceanMonitoringSystem.Server.Controllers
                             return NotFound(new { error = "Analysis result not found" });
                         }
                     }
-                    else
+                    catch (ArgumentException)
                     {
                         return BadRequest(new { error = "Invalid ID format" });
                     }
@@ -183,14 +184,14 @@ namespace OceanMonitoringSystem.Server.Controllers
             }
         }
 
-        private async Task<Ocean_Analysis.SensorDataAnalysisResponse?> CallGrpcAnalysisService(string dataType, List<SensorData> sensorData)
+        private async Task<OceanAnalysis.SensorDataAnalysisResponse?> CallGrpcAnalysisService(string dataType, List<SensorData> sensorData)
         {
             try
             {
                 using var channel = GrpcChannel.ForAddress(GrpcServerUrl);
-                var client = new Ocean_Analysis.SensorDataAnalysisService.SensorDataAnalysisServiceClient(channel);
+                var client = new OceanAnalysis.SensorDataAnalysisService.SensorDataAnalysisServiceClient(channel);
 
-                var request = new Ocean_Analysis.SensorDataRequest
+                var request = new OceanAnalysis.SensorDataRequest
                 {
                     DataType = dataType
                 };
