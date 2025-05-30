@@ -37,6 +37,7 @@ services:
     environment:
       - AGGREGATOR_ID=agg1
       - AGGREGATOR_PORT=9000
+      - SERVER_IP=server
       - SERVER_PORT=8080
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
@@ -61,6 +62,7 @@ services:
     environment:
       - AGGREGATOR_ID=agg2
       - AGGREGATOR_PORT=9001
+      - SERVER_IP=server
       - SERVER_PORT=8080
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
