@@ -135,6 +135,22 @@ services:
       aggregator2:
         condition: service_started
 
+  python-analysis:
+    build:
+      context: .
+      dockerfile: PythonAnalysisService/Dockerfile
+    ports:
+      - "50052:50052"
+    networks:
+      - ocean_network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import grpc; print('gRPC server ready')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    environment:
+      - GRPC_PORT=50052
+
 networks:
   ocean_network:
     driver: bridge
