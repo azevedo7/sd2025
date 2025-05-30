@@ -142,6 +142,20 @@ services:
     networks:
       - ocean_network
 
+  rpc-go-datatype:
+    build:
+      context: ./OceanMonitoringSystem/rpcGoDatatype
+      dockerfile: Dockerfile
+    ports:
+      - "50051:50051"
+    networks:
+      - ocean_network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "50051"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 networks:
   ocean_network:
     driver: bridge
