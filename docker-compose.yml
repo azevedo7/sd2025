@@ -118,7 +118,7 @@ services:
       context: ./OceanMonitoringSystem
       dockerfile: Aggregator/Dockerfile
     environment:
-      - AGGREGATOR_ID=temp_only_agg
+      - AGGREGATOR_ID=1
       - SENSOR_TYPES=temperature  # Only temperature sensors
       - AGGREGATOR_TYPE=temperature
       - AGGREGATOR_PORT=9003
@@ -146,8 +146,8 @@ services:
       context: ./OceanMonitoringSystem
       dockerfile: Aggregator/Dockerfile
     environment:
-      - AGGREGATOR_ID=maintenance_agg
-      - SENSOR_TYPES=temperature,humidity,windSpeed,waterLevel  # All types for maintenance
+      - AGGREGATOR_ID=3
+      - SENSOR_TYPES=humidity,windSpeed,waterLevel  # All types for maintenance
       - AGGREGATOR_TYPE=maintenance  # Focus on maintenance messages
       - AGGREGATOR_PORT=9004
       - SERVER_IP=server
