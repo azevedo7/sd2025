@@ -30,60 +30,57 @@ services:
     networks:
       - ocean_network
 
-  aggregator1:
+  wavy1:
     build:
       context: ./OceanMonitoringSystem
-      dockerfile: Aggregator/Dockerfile
+      dockerfile: Wavy/Dockerfile
     environment:
-      - AGGREGATOR_ID=humidity_agg
-      - SENSOR_TYPES=humidity,waterLevel
-      - AGGREGATOR_PORT=9000
-      - SERVER_IP=server
-      - SERVER_PORT=8080
+      - WAVY_ID=wavy1
+      - AGGREGATOR_QUEUE=legacy_queue  # Legacy support
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=oceanguest
       - RABBITMQ_PASSWORD=oceanpass
-    ports:
-      - "9000:9000"
-    volumes:
-      - aggregator1_data:/app/data
     networks:
       - ocean_network
     depends_on:
       rabbitmq:
         condition: service_healthy
-      server:
-        condition: service_started
 
-  aggregator2:
+  wavy2:
     build:
       context: ./OceanMonitoringSystem
-      dockerfile: Aggregator/Dockerfile
+      dockerfile: Wavy/Dockerfile
     environment:
-      - AGGREGATOR_ID=temperature_agg
-      - SENSOR_TYPES=temperature,windSpeed
-      - AGGREGATOR_PORT=9001
-      - SERVER_IP=server
-      - SERVER_PORT=8080
+      - WAVY_ID=wavy2
+      - AGGREGATOR_QUEUE=legacy_queue  # Legacy support
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=oceanguest
       - RABBITMQ_PASSWORD=oceanpass
-    ports:
-      - "9001:9001"
-    volumes:
-      - aggregator2_data:/app/data
     networks:
       - ocean_network
     depends_on:
       rabbitmq:
         condition: service_healthy
-      server:
-        condition: service_started
 
-  # Additional specialized aggregators for demonstration
-  
+  wavy3:
+    build:
+      context: ./OceanMonitoringSystem
+      dockerfile: Wavy/Dockerfile
+    environment:
+      - WAVY_ID=wavy3
+      - AGGREGATOR_QUEUE=legacy_queue  # Legacy support
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=oceanguest
+      - RABBITMQ_PASSWORD=oceanpass
+    networks:
+      - ocean_network
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
   # Environmental monitoring aggregator - subscribes to all environmental sensors
   aggregator_environmental:
     build:
