@@ -82,56 +82,91 @@ services:
       server:
         condition: service_started
 
-  wavy1:
+  # Additional specialized aggregators for demonstration
+  
+  # Environmental monitoring aggregator - subscribes to all environmental sensors
+  aggregator_environmental:
     build:
       context: ./OceanMonitoringSystem
-      dockerfile: Wavy/Dockerfile
+      dockerfile: Aggregator/Dockerfile
     environment:
-      - WAVY_ID=wavy1
-      - AGGREGATOR_QUEUE=legacy_queue  # Legacy support
+      - AGGREGATOR_ID=environmental_agg
+      - SENSOR_TYPES=temperature,humidity,windSpeed,waterLevel  # All sensor types
+      - AGGREGATOR_TYPE=environmental  # Specialized type for environmental monitoring
+      - AGGREGATOR_PORT=9002
+      - SERVER_IP=server
+      - SERVER_PORT=8080
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=oceanguest
       - RABBITMQ_PASSWORD=oceanpass
+    ports:
+      - "9002:9002"
+    volumes:
+      - aggregator_environmental_data:/app/data
     networks:
       - ocean_network
     depends_on:
       rabbitmq:
         condition: service_healthy
+      server:
+        condition: service_started
 
-  wavy2:
+  # Temperature-only monitoring aggregator
+  aggregator_temp_only:
     build:
       context: ./OceanMonitoringSystem
-      dockerfile: Wavy/Dockerfile
+      dockerfile: Aggregator/Dockerfile
     environment:
-      - WAVY_ID=wavy2
-      - AGGREGATOR_QUEUE=legacy_queue  # Legacy support
+      - AGGREGATOR_ID=temp_only_agg
+      - SENSOR_TYPES=temperature  # Only temperature sensors
+      - AGGREGATOR_TYPE=temperature
+      - AGGREGATOR_PORT=9003
+      - SERVER_IP=server
+      - SERVER_PORT=8080
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=oceanguest
       - RABBITMQ_PASSWORD=oceanpass
+    ports:
+      - "9003:9003"
+    volumes:
+      - aggregator_temp_only_data:/app/data
     networks:
       - ocean_network
     depends_on:
       rabbitmq:
         condition: service_healthy
+      server:
+        condition: service_started
 
-  wavy3:
+  # Maintenance monitoring aggregator - for maintenance messages only
+  aggregator_maintenance:
     build:
       context: ./OceanMonitoringSystem
-      dockerfile: Wavy/Dockerfile
+      dockerfile: Aggregator/Dockerfile
     environment:
-      - WAVY_ID=wavy3
-      - AGGREGATOR_QUEUE=legacy_queue  # Legacy support
+      - AGGREGATOR_ID=maintenance_agg
+      - SENSOR_TYPES=temperature,humidity,windSpeed,waterLevel  # All types for maintenance
+      - AGGREGATOR_TYPE=maintenance  # Focus on maintenance messages
+      - AGGREGATOR_PORT=9004
+      - SERVER_IP=server
+      - SERVER_PORT=8080
       - RABBITMQ_HOST=rabbitmq
       - RABBITMQ_PORT=5672
       - RABBITMQ_USER=oceanguest
       - RABBITMQ_PASSWORD=oceanpass
+    ports:
+      - "9004:9004"
+    volumes:
+      - aggregator_maintenance_data:/app/data
     networks:
       - ocean_network
     depends_on:
       rabbitmq:
         condition: service_healthy
+      server:
+        condition: service_started
 
   python-analysis:
     build:
@@ -166,3 +201,6 @@ volumes:
   aggregator1_data:
   aggregator2_data:
   web_control_data:
+  aggregator_environmental_data:
+  aggregator_temp_only_data:
+  aggregator_maintenance_data:

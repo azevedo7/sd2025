@@ -109,6 +109,26 @@ RABBITMQ_PASSWORD=oceanpass
 | `critical_monitor` | Critical Devices | Monitor specific devices |
 | `general` | All Data Room | All sensor data |
 
+### Aggregator Topic Selection
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `SENSOR_TYPES` | **Comma-separated list of sensor types to subscribe to** | `temperature,humidity` |
+| `AGGREGATOR_TYPE` | **Predefined aggregator behavior type** | `environmental` |
+
+**Topic Subscription Examples:**
+```yaml
+# Temperature and Humidity only
+- SENSOR_TYPES=temperature,humidity
+
+# All environmental sensors  
+- SENSOR_TYPES=temperature,humidity,windSpeed,waterLevel
+- AGGREGATOR_TYPE=environmental
+
+# Temperature only with specialized processing
+- SENSOR_TYPES=temperature
+- AGGREGATOR_TYPE=temperature
+```
+
 ## Common Operations
 
 ### Publishing a Message (Wavy)
